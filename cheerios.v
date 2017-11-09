@@ -326,16 +326,18 @@ Section ListSerializer.
   Lemma list_deser_ser_identity: forall (l : list A) (bools: list bool),
     list_deserialize ((list_serialize l) ++ bools) = Some (l, bools).
   Proof.
-    intros.
+    intro l.
     induction l.
     - simpl. reflexivity.
     - simpl.
+      intro bools.
       rewrite <- app_assoc.
       rewrite IHl.
       rewrite deser_ser_identity.
+      reflexivity.
   Qed.
 
-  Global Instance ListSerializer : Serializer (A * B).
+  Global Instance ListSerializer : Serializer (list A).
   Proof.
   exact {| serialize := list_serialize;
            deserialize := list_deserialize;
@@ -343,8 +345,6 @@ Section ListSerializer.
          |}.
   Defined.
 End ListSerializer.
-
-
 
 Eval compute in deserialize (serialize (true, Z)): option ((bool* Binary) * list bool).
 
