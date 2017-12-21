@@ -369,14 +369,39 @@ Section TreeSerializer.
         end
     end.
 
-  Fixpoint tree_insert (location: Binary) (into: tree) (a:A): tree :=
+  Definition tree_prune (t: tree) :=
+    match t with
+    | leaf => leaf
+    | stem a l r => stem a leaf leaf
+    end.
+
+  Fixpoint tree_insert (into node: tree) (location: Binary): tree :=
     match into with
-    | leaf => leaf (* not really supported *)
+    | leaf => 
+        match location with
+        | Z => node
+        | _ => leaf (* not really supported *)
+        end
     | stem a l r =>
         match location with
-        | Z => stem a leaf leaf
-        | T b => stem a (tree_insert b l a) r
-        | O b => stem a l (tree_insert b r a)
+        | Z => node (* also not supported *)
+        | T b => stem a (tree_insert l node b) r
+        | O b => stem a l (tree_insert r node b)
+        end
+    end.
+
+  Fixpoint leaf_insertable (into node: tree) (location: Binary): Prop :=
+    match into with
+    | leaf => 
+        match location with
+        | Z => True (* Only if the location and tree run out at the same time should we insert *)
+        | _ => False
+        end
+    | stem a l r =>
+        match location with
+        | Z => False
+        | T b => (leaf_insertable l node b)
+        | O b => (leaf_insertable r node b)
         end
     end.
 
@@ -386,47 +411,214 @@ Section TreeSerializer.
     | stem a l r => 1 + tree_size l + tree_size r
     end.
 
-  Fixpoint tree_serialize_preorder_impl (t: tree) (location: Binary): list bool :=
+  Definition tree_serialize_node (t: tree) (location: Binary): list bool :=
     match t with
       | leaf => (binary_serialize location) ++ [false]
-      | stem a l r => (binary_serialize location) ++ [true] ++ (serialize a) ++
-            (tree_serialize_preorder_impl l (T location)) ++ (tree_serialize_preorder_impl r (O location))
+      | stem a l r => (binary_serialize location) ++ [true] ++ (serialize a)
     end.
 
-  Definition tree_serialize_preorder (t: tree) : list bool :=
-    (nat_serialize (tree_size t)) ++ (tree_serialize_preorder_impl t Z).
+  Fixpoint tree_serialize_subtree (t: tree) (location: Binary): list bool :=
+    match t with
+      | leaf => tree_serialize_node t location
+      | stem a l r => tree_serialize_node t location ++
+            (tree_serialize_subtree l (T location)) ++ (tree_serialize_subtree r (O location))
+    end.
 
-  Definition tree_deserialize_one (root:tree) (bools : list bool) : option (tree * list bool) :=
+  Fixpoint tree_serialize_header (t : tree) :=
+    match t with
+    | leaf => [true]
+    | stem a l r => [true] ++ tree_serialize_header l ++ tree_serialize_header r
+    end.
+
+  Definition tree_serialize (t: tree) : list bool :=
+    (tree_serialize_header t) ++ [false] ++ (tree_serialize_subtree t Z).
+
+  Definition tree_deserialize_node (root:tree) (bools : list bool) : option (tree * list bool) :=
     match (binary_deserialize bools) with
     | None => None
     | Some (location, bools) =>
-      match (deserialize bools) with
-      | None => None
-      | Some (a, bools) => Some (tree_insert location root a , bools)
+      match bools with
+      | false :: bools => Some (tree_insert root leaf location, bools)
+      | true :: bools =>
+        match (deserialize bools) with
+        | None => None
+        | Some (a, bools) => Some (tree_insert root (stem a leaf leaf) location, bools)
+        end
+      | _ => None
       end
     end.
 
-  Fixpoint tree_deserialize_preorder_impl (bools : list bool) (root : tree) : option (tree * list bool):=
+  Fixpoint tree_deserialize_impl  (root : tree) (bools : list bool) : option (tree * list bool):=
     match bools with
     | true :: bools =>
-      match (tree_deserialize_preorder_impl bools root) with
+      match (tree_deserialize_impl root bools) with
       | None => None
-      | Some (root, bools) => 
-        match (binary_deserialize bools) with
-        | None => None
-        | Some (location, bools) =>
-          match (deserialize bools) with
-          | Some (a, bools) => Some (tree_insert location root a, bools)
-          | None => None
-          end
-        end
+      | Some (root, bools) => tree_deserialize_node root bools
       end
     | false :: bools => Some (root, bools)
     | _ => None
     end.
 
-  Definition tree_deserialize_preorder (bools: list bool) : option (tree * list bool) :=
-    tree_deserialize_preorder_impl
+  Definition tree_deserialize (bools: list bool) : option (tree * list bool) :=
+    tree_deserialize_impl leaf bools.
+
+  Theorem tree_deser_ser_one_leaf: forall root : tree, forall bools: list bool, forall location: Binary,
+    (tree_deserialize_node root ((tree_serialize_subtree leaf location) ++ bools)) = Some ((tree_insert root leaf location), bools).
+  Proof.
+    intros.
+    unfold tree_deserialize_node, tree_serialize_subtree, tree_serialize_node.
+    rewrite app_ass.
+    rewrite binary_deser_ser_identity.
+    simpl.
+    reflexivity.
+  Qed.
+
+  Lemma tree_deser_ser_node: forall t root : tree, forall bools: list bool, forall location: Binary,
+    (tree_deserialize_node root ((tree_serialize_node t location) ++ bools))
+     = Some (tree_insert root (tree_prune t) location, bools).
+  Proof.
+    intros t root bools.
+    unfold tree_deserialize_node.
+    destruct t.
+    - intros.
+      unfold tree_serialize_node.
+      rewrite app_ass.
+      unfold tree_deserialize_node.
+      simpl.
+      rewrite binary_deser_ser_identity.
+      reflexivity.
+    - intros.
+      unfold tree_serialize_node.
+      rewrite app_ass.
+      rewrite binary_deser_ser_identity.
+      simpl.
+      rewrite deser_ser_identity.
+      unfold tree_deserialize_node.
+      reflexivity.
+  Qed.
+
+  Lemma tree_header_comb: forall t : tree,
+    match t with 
+    | leaf => tree_serialize_header leaf
+    | stem a l r => [true] ++ tree_serialize_header l ++ tree_serialize_header r
+    end =
+    tree_serialize_header t.
+  Proof.
+    destruct t.
+    - reflexivity.
+    - simpl. reflexivity.
+  Qed.
+
+  Theorem tree_deser_ser_one: forall (t root : tree) (bools: list bool) (location: Binary),
+  leaf_insertable root t location ->
+    (tree_deserialize_impl root ((tree_serialize_header t) ++ [false] ++ (tree_serialize_subtree t location) ++ bools))
+     = Some (tree_insert root leaf location, bools).
+  Proof.
+    intros t root bools location insertable. (* Is there a way to intro the implication without introing location? *)
+    generalize dependent location.
+    induction t as [|a L IHL R IHR].
+    - intros.d
+      unfold tree_deserialize_impl, tree_serialize_header.
+      simpl.
+      unfold tree_deserialize_node.
+      rewrite app_ass.
+      rewrite binary_deser_ser_identity.
+      simpl.
+      reflexivity. (* I didn't use insertable here, wtf? *)
+    - intros.
+      unfold tree_serialize_header, tree_deserialize_impl.
+      rewrite app_ass, app_ass.
+      simpl.
+      unfold tree_deserialize_node.
+
+  Theorem tree_preorder_deser_ser_any_identity: forall t root : tree, forall bools: list bool, forall location: Binary,
+  leaf_insertable root t   location -> 
+    match t with
+    | leaf => (tree_deserialize_one root ((tree_serialize_subtree leaf location) ++ bools)) = Some ((tree_insert root leaf location), bools)
+    | stem a l r =>
+      (tree_deserialize_one root ((tree_serialize_subtree (stem a l r) location) ++ bools)) = 
+      Some (tree_insert root (stem a l r) location, (tree_serialize_subtree l (T location)) ++ (tree_serialize_subtree r (T location)) ++ bools)
+    end.
+  Proof.
+    intros t root bools location insertable.
+    induction t as [|a L IHL R IHR].
+    - apply tree_deser_ser_one_leaf_identity.
+    - 
+(*
+        rewrite binary_deser_ser_identity.
+        simpl.
+        reflexivity.
+      + rewrite app_ass.
+        rewrite binary_deser_ser_identity.
+        simpl.
+        rewrite app_ass.
+        rewrite deser_ser_identity.
+        reflexivity.
+    - rewrite app_ass, app_ass.
+      rewrite binary_deser_ser_identity.
+      simpl.
+      destruct r.
+      + rewrite app_ass.
+        rewrite binary_deser_ser_identity.
+        simpl.
+        reflexivity.
+      *)
+
+
+  Theorem tree_preorder_deser_ser_one_left_identity: forall a : A, forall l root : tree, forall bools: list bool, forall location: Binary,
+    match (tree_deserialize_one root ((tree_serialize_subtree (stem a l leaf) location) ++ bools)) with
+    | None => None
+    | Some (root, bools) => (tree_deserialize_one root bools)
+    end
+        = Some (tree_insert (T location) l (tree_insert location (stem a l leaf) root), bools).
+  Proof.
+    intros.
+    unfold tree_deserialize_one, tree_serialize_subtree.
+    rewrite app_ass.
+    rewrite binary_deser_ser_identity.
+    simpl.
+    rewrite app_ass.
+    rewrite deser_ser_identity.
+    rewrite app_ass.
+    simpl.
+    unfold binary_deserialize.
+    simpl. Abort.
+
+
+(*
+    induction t  as [|a L IHl R IHr].
+    - unfold tree_deserialize_one, tree_serialize_subtree.
+      rewrite app_ass.
+      rewrite binary_deser_ser_identity.
+      simpl. 
+      reflexivity.
+    - unfold tree_deserialize_one, tree_serialize_subtree.
+      rewrite app_ass.
+      rewrite binary_deser_ser_identity.
+      simpl.
+      rewrite app_ass.
+      rewrite deser_ser_identity.
+      simpl.
+      rewrite app_ass.
+      *)
+
+  Theorem tree_preorder_deser_ser_identity: forall t : tree, forall bools: list bool,
+    (tree_deserialize_preorder ((tree_serialize_preorder t) ++ bools)) = Some (t, bools).
+  Proof.
+    intros.
+    unfold tree_deserialize_preorder, tree_serialize_preorder.
+    induction t as [|a L IHl R IHr].
+    - simpl.
+      unfold tree_deserialize_one.
+      simpl.
+      reflexivity.
+    - simpl.
+      rewrite app_ass, app_ass.
+      Abort.
+      rewrite IHl.
+ unfold tree_serialize_preorder_header, tree_size, tree_deserialize_preorder_impl.
+      simpl.
+      rewrite IHl.
 
   Definition bool_encode_tree (t: tree) :=
     match t with
@@ -440,61 +632,6 @@ Section TreeSerializer.
     | stem a l r => [true; bool_encode_tree l; bool_encode_tree r] ++
        tree_serialize_structure l ++ tree_serialize_structure r
     end.
-
-  Fixpoint tree_serialize_depthfirst (bools : list bool) : option(tree (list bool)) :=
-    match bools with 
-    | false :: false :: bools => 
-    | false :: true :: bools => 
-
-  Fixpoint tree_serialize_depthfirst (t: tree) : list bool :=
-    match t with
-
-  Fixpoint tree_deserialize_structure (bools : list bool) : option(tree (list bool)) :=
-    match bools with 
-    | false :: bools => leaf
-    | true :: ls :: rs :: bools => 
-      match (tree_deserialize_structure bools) with
-    | _ => None
-    end.
-
-  Fixpoint tree_serialize (t : tree) : list bool :=
-    match t with
-    | leaf => [false] 
-    | stem a l r => [true] ++ tree_serialize l ++ tree_serialize r ++ serialize a
-    end.
-
-  Fixpoint tree_deserialize (bools : list bool) : option (tree * list bool) :=
-    match bools with
-    | false :: bools => Some (leaf, bools)
-    | true :: bools =>
-      match (tree_deserialize bools) with
-      | None => None
-      | Some (l, bools) =>
-        match (tree_deserialize bools) with
-        | None => None
-        | Some (r, bools) =>
-          match (deserialize bools) with
-          | None => None
-          | Some (a, bools) => Some (stem a l r, bools)
-          end
-        end
-      end
-    | _ => None
-    end.
-
-  Lemma tree_deser_ser_identity: forall (l : list A) (bools: list bool),
-    tree_deserialize ((tree_serialize l) ++ bools) = Some (l, bools).
-  Proof.
-    intro l.
-    induction l.
-    - simpl. reflexivity.
-    - simpl.
-      intro bools.
-      rewrite <- app_assoc.
-      rewrite IHl.
-      rewrite deser_ser_identity.
-      reflexivity.
-  Qed.
 
   Global Instance TreeSerializer : Serializer (tree A).
   Proof.
