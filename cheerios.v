@@ -424,14 +424,14 @@ Section TreeSerializer.
         end
     end.
 
-  Fixpoint serialized_fold (fn : tree * list bool -> tree * list bool) (bools : list bool) : option(tree * list bool) :=
+  Fixpoint serialized_fold (fn : tree * list bool -> option(tree * list bool)) (bools : list bool) : option(tree * list bool) :=
     match bools with
     | true :: bools => 
       match (serialized_fold fn bools) with
-      | Some (t, bools) => Some (fn (t, bools))
+      | Some (t, bools) => fn (t, bools)
       | None => None
       end
-    | false :: bools => Some (fn (leaf, bools))
+    | false :: bools => Some (leaf, bools)
     | _ => None
     end.
 
@@ -463,35 +463,35 @@ Section TreeSerializer.
   Definition tree_serialize (t: tree) : list bool :=
     (tree_serialize_header t) ++ [false] ++ (tree_serialize_subtree t Z).
 
-  Definition tree_deserialize_node (root:tree) (bools : list bool) : option (tree * list bool) :=
-    match (binary_deserialize bools) with
+  Definition tree_deserialize_node (data :tree * list bool) : option (tree * list bool) :=
+    match (binary_deserialize (snd data)) with
     | None => None
     | Some (location, bools) =>
       match bools with
-      | false :: bools => Some (tree_insert root leaf location, bools)
+      | false :: bools => Some (tree_insert (fst data) leaf location, bools)
       | true :: bools =>
         match (deserialize bools) with
         | None => None
-        | Some (a, bools) => Some (tree_insert root (stem a leaf leaf) location, bools)
+        | Some (a, bools) => Some (tree_insert (fst data) (stem a leaf leaf) location, bools)
         end
       | _ => None
       end
     end.
 
-  Fixpoint tree_deserialize_impl  (root : tree) (bools : list bool) : option (tree * list bool):=
+  Fixpoint tree_deserialize_impl (root : tree) (bools : list bool) : option (tree * list bool):=
     match bools with
     | true :: bools =>
       match (tree_deserialize_impl root bools) with
       | None => None
-      | Some (root, bools) => tree_deserialize_node root bools
+      | Some (root, bools) => tree_deserialize_node (root, bools)
       end
     | false :: bools => Some (root, bools)
     | _ => None
     end.
 
   Definition tree_deserialize (bools: list bool) : option (tree * list bool) :=
-    tree_deserialize_impl leaf bools.
-
+    serialized_fold tree_deserialize_node bools.
+(*
   Theorem tree_deser_ser_one_leaf: forall root : tree, forall bools: list bool, forall location: Binary,
     (tree_deserialize_node root ((tree_serialize_subtree leaf location) ++ bools)) = Some ((tree_insert root leaf location), bools).
   Proof.
@@ -538,7 +538,7 @@ Section TreeSerializer.
     - reflexivity.
     - simpl. reflexivity.
   Qed.
-
+*)
   Theorem tree_deser_ser_one: forall (t root : tree) (bools: list bool) (location: Binary),
 (*  leaf_insertable root t location -> *)
     (tree_deserialize_impl root ((tree_serialize_header t) ++ [false] ++ (tree_serialize_subtree t location) ++ bools))
@@ -552,8 +552,8 @@ Section TreeSerializer.
       simpl.
       unfold tree_deserialize_node.
       rewrite app_ass.
-      rewrite binary_deser_ser_identity.
       simpl.
+      rewrite binary_deser_ser_identity.
       reflexivity. (* I didn't use insertable here, wtf? *)
     - intros.
       unfold tree_serialize_header, tree_deserialize_impl.
@@ -565,7 +565,15 @@ Section TreeSerializer.
   Theorem tree_preorder_deser_ser_identity: forall t : tree, forall bools: list bool,
     (tree_deserialize ((tree_serialize t) ++ bools)) = Some (t, bools).
   Proof.
-    intros. Admitted.
+    intros.
+    induction t as [|a L IHL R IHR].
+    - unfold tree_deserialize, tree_deserialize_impl, tree_deserialize_node, tree_serialize, tree_serialize_header.
+      rewrite app_ass, app_ass.
+      simpl. 
+      reflexivity.
+    - unfold tree_deserialize, tree_deserialize_impl, tree_deserialize_node, tree_serialize, tree_serialize_header.
+      rewrite app_ass, app_ass.
+      simpl.
 
   Definition bool_encode_tree (t: tree) :=
     match t with
@@ -597,6 +605,10 @@ Eval compute in deserialize (serialize
     (stem nat 2 (stem nat 3 (leaf nat) (stem nat 4 (leaf nat) (leaf nat))) (leaf nat)) (leaf nat))) : option (tree nat * list bool).
 
 Eval compute in deserialize (serialize  (stem nat 2 (stem nat 3 (leaf nat) (stem nat 4 (leaf nat) (leaf nat))) (leaf nat))) : option (tree nat * list bool).
+
+Eval compute in deserialize (serialize (stem nat 1 (leaf nat) (leaf nat))) : option (tree nat * list bool).
+
+Eval compute in deserialize (serialize (leaf nat)) : option (tree nat * list bool).
 
 Eval compute in deserialize (serialize (true, Z)): option ((bool* Binary) * list bool).
 
