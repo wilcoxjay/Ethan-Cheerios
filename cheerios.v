@@ -390,56 +390,35 @@ Section TreeSerializer.
   | leaf : tree
   | stem : A -> tree -> tree -> tree.
 
-  Fixpoint tree_insert_default (default: A) (location: Binary) (new into: tree) : tree :=
-    match into with
-    | leaf => 
-        match location with
-        | Z => new
-        | T b => stem default (tree_insert_default default b new leaf) leaf
-        | O b => stem default leaf (tree_insert_default default b new leaf)
-        end
-    | stem a l r =>
-        match location with
-        | Z => new
-        | T b => stem a (tree_insert_default default b new l) r
-        | O b => stem a l (tree_insert_default default b new r)
-        end
-    end.
-
   Definition tree_prune (t: tree) :=
     match t with
     | leaf => leaf
     | stem a l r => stem a leaf leaf
     end.
 
-  Fixpoint tree_insert (into node: tree) (location: Binary): tree :=
+  Fixpoint tree_insert (into node: tree) (path: list bool): tree :=
     match into with
-    | leaf => 
-        match (extract_last location) with
-        | (Z, l) => node
-        | _ => leaf (* not really supported *)
-        end
+    | leaf => node
     | stem a l r =>
-        match (extract_last location) with
-        | (Z, loc) => node (* also not supported *)
-        | (T Z, loc) => stem a (tree_insert l node loc) r
-        | (O Z, loc) => stem a l (tree_insert r node loc)
-        | _ => node (* Should never happen *)
+        match path with
+        | [] => node (* also not supported *)
+        | true :: path => stem a (tree_insert l node path) r
+        | false :: path => stem a l (tree_insert r node path)
         end
     end.
 
-  Fixpoint leaf_insertable (into node: tree) (location: Binary): Prop :=
+  Fixpoint leaf_insertable (into node: tree) (path: list bool): Prop :=
     match into with
     | leaf => 
-        match location with
-        | Z => True (* Only if the location and tree run out at the same time should we insert *)
+        match path with
+        | [] => True (* Only if the location and tree run out at the same time should we insert *)
         | _ => False
         end
     | stem a l r =>
-        match location with
-        | Z => False
-        | T b => (leaf_insertable l node b)
-        | O b => (leaf_insertable r node b)
+        match path with
+        | [] => False
+        | true :: path => (leaf_insertable l node path)
+        | false :: path => (leaf_insertable r node path)
         end
     end.
 
@@ -460,17 +439,17 @@ Section TreeSerializer.
     | stem a l r => 1 + tree_size l + tree_size r
     end.
 
-  Definition tree_serialize_node (t: tree) (location: Binary): list bool :=
+  Definition tree_serialize_node (t: tree) (location: list bool): list bool :=
     match t with
       | leaf => []
-      | stem a l r => (binary_serialize location) ++ (serialize a)
+      | stem a l r => (serialize location) ++ (serialize a)
     end.
 
-  Fixpoint tree_serialize_subtree (t: tree) (location: Binary): list bool :=
+  Fixpoint tree_serialize_subtree (t: tree) (location: list bool): list bool :=
     match t with
       | leaf => tree_serialize_node t location
-      | stem a l r => (tree_serialize_subtree l (T location)) ++ 
-        (tree_serialize_subtree r (O location)) ++ tree_serialize_node t location 
+      | stem a l r =>  tree_serialize_node t location  ++ (tree_serialize_subtree l (true :: location)) ++ 
+        (tree_serialize_subtree r (false :: location))
     end.
 
   Fixpoint tree_serialize_header (t : tree) :=
@@ -480,15 +459,15 @@ Section TreeSerializer.
     end.
 
   Definition tree_serialize (t: tree) : list bool :=
-    (tree_serialize_header t) ++ [false] ++ (tree_serialize_subtree t Z).
+    (tree_serialize_header t) ++ [false] ++ (tree_serialize_subtree t []).
 
   Definition tree_deserialize_node (root :tree) (bools: list bool) : option (tree * list bool) :=
-    match (binary_deserialize bools) with
+    match (list_deserialize bool BoolSerializer bools) with
     | None => None
     | Some (location, bools) =>
       match (deserialize bools) with
       | None => None
-      | Some (a, bools) => Some (tree_insert root (stem a leaf leaf) location, bools)
+      | Some (a, bools) => Some (tree_insert root (stem a leaf leaf) (List.rev location), bools)
       end
     end.
 
@@ -497,14 +476,14 @@ Section TreeSerializer.
     | true :: bools =>
       match (tree_deserialize_impl root bools) with
       | None => None
-      | Some (root, bools) => tree_deserialize_node (root, bools)
+      | Some (root, bools) => tree_deserialize_node root bools
       end
     | false :: bools => Some (root, bools)
     | _ => None
     end.
 
   Definition tree_deserialize (bools: list bool) : option (tree * list bool) :=
-    tree_deserialize_impl 
+    tree_deserialize_impl leaf bools.
 (*    serialized_fold tree_deserialize_node bools. *)
 (*
   Theorem tree_deser_ser_one_leaf: forall root : tree, forall bools: list bool, forall location: Binary,
