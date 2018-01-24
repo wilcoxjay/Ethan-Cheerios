@@ -340,6 +340,25 @@ Section ListSerializer.
     | _ => None
     end.
 
+  Lemma list_deser_ser_one: forall (a : A) (l : list A) (bools: list bool),
+    list_deserialize ((list_serialize (a :: l)) ++ bools) = 
+      Some (a :: list_deserialize ((list_serialize l), bools)).
+  Proof.
+    intros.
+    unfold list_deserialize, list_serialize.
+    rewrite app_ass, app_ass.
+    simpl.
+  Qed.
+
+  Lemma list_deser_ser_one: forall (a : A) (l : list A) (bools: list bool),
+    list_deserialize ((list_serialize (a :: l)) ++ bools) = Some (a :: l, bools).
+  Proof.
+    intros.
+    unfold list_deserialize, list_serialize.
+    rewrite app_ass, app_ass.
+    simpl.
+  Qed.
+
   Lemma list_deser_ser_identity: forall (l : list A) (bools: list bool),
     list_deserialize ((list_serialize l) ++ bools) = Some (l, bools).
   Proof.
@@ -443,38 +462,33 @@ Section TreeSerializer.
 
   Definition tree_serialize_node (t: tree) (location: Binary): list bool :=
     match t with
-      | leaf => (binary_serialize location) ++ [false]
-      | stem a l r => (binary_serialize location) ++ [true] ++ (serialize a)
+      | leaf => []
+      | stem a l r => (binary_serialize location) ++ (serialize a)
     end.
 
   Fixpoint tree_serialize_subtree (t: tree) (location: Binary): list bool :=
     match t with
       | leaf => tree_serialize_node t location
-      | stem a l r => tree_serialize_node t location ++
-            (tree_serialize_subtree l (T location)) ++ (tree_serialize_subtree r (O location))
+      | stem a l r => (tree_serialize_subtree l (T location)) ++ 
+        (tree_serialize_subtree r (O location)) ++ tree_serialize_node t location 
     end.
 
   Fixpoint tree_serialize_header (t : tree) :=
     match t with
-    | leaf => [true]
+    | leaf => []
     | stem a l r => [true] ++ tree_serialize_header l ++ tree_serialize_header r
     end.
 
   Definition tree_serialize (t: tree) : list bool :=
     (tree_serialize_header t) ++ [false] ++ (tree_serialize_subtree t Z).
 
-  Definition tree_deserialize_node (data :tree * list bool) : option (tree * list bool) :=
-    match (binary_deserialize (snd data)) with
+  Definition tree_deserialize_node (root :tree) (bools: list bool) : option (tree * list bool) :=
+    match (binary_deserialize bools) with
     | None => None
     | Some (location, bools) =>
-      match bools with
-      | false :: bools => Some (tree_insert (fst data) leaf location, bools)
-      | true :: bools =>
-        match (deserialize bools) with
-        | None => None
-        | Some (a, bools) => Some (tree_insert (fst data) (stem a leaf leaf) location, bools)
-        end
-      | _ => None
+      match (deserialize bools) with
+      | None => None
+      | Some (a, bools) => Some (tree_insert root (stem a leaf leaf) location, bools)
       end
     end.
 
@@ -490,7 +504,8 @@ Section TreeSerializer.
     end.
 
   Definition tree_deserialize (bools: list bool) : option (tree * list bool) :=
-    serialized_fold tree_deserialize_node bools.
+    tree_deserialize_impl 
+(*    serialized_fold tree_deserialize_node bools. *)
 (*
   Theorem tree_deser_ser_one_leaf: forall root : tree, forall bools: list bool, forall location: Binary,
     (tree_deserialize_node root ((tree_serialize_subtree leaf location) ++ bools)) = Some ((tree_insert root leaf location), bools).
@@ -539,41 +554,23 @@ Section TreeSerializer.
     - simpl. reflexivity.
   Qed.
 *)
-  Theorem tree_deser_ser_one: forall (t root : tree) (bools: list bool) (location: Binary),
-(*  leaf_insertable root t location -> *)
-    (tree_deserialize_impl root ((tree_serialize_header t) ++ [false] ++ (tree_serialize_subtree t location) ++ bools))
-     = Some (tree_insert root leaf location, bools).
-  Proof.
-    intros t root bools location.
-    generalize dependent location.
-    induction t as [|a L IHL R IHR].
-    - intros.
-      unfold tree_deserialize_impl, tree_serialize_header.
-      simpl.
-      unfold tree_deserialize_node.
-      rewrite app_ass.
-      simpl.
-      rewrite binary_deser_ser_identity.
-      reflexivity. (* I didn't use insertable here, wtf? *)
-    - intros.
-      unfold tree_serialize_header, tree_deserialize_impl.
-      rewrite app_ass, app_ass.
-      simpl.
-      unfold tree_deserialize_node.
-      rewrite app_ass. Abort.
 
   Theorem tree_preorder_deser_ser_identity: forall t : tree, forall bools: list bool,
     (tree_deserialize ((tree_serialize t) ++ bools)) = Some (t, bools).
   Proof.
     intros.
+    unfold tree_deserialize, tree_serialize.
     induction t as [|a L IHL R IHR].
-    - unfold tree_deserialize, tree_deserialize_impl, tree_deserialize_node, tree_serialize, tree_serialize_header.
+    - unfold tree_deserialize_impl, tree_deserialize_node, tree_serialize_header.
       rewrite app_ass, app_ass.
       simpl. 
       reflexivity.
-    - unfold tree_deserialize, tree_deserialize_impl, tree_deserialize_node, tree_serialize, tree_serialize_header.
+    - (* unfold tree_deserialize_impl, tree_deserialize_node, tree_serialize_header, serialized_fold. *)
       rewrite app_ass, app_ass.
-      simpl.
+      unfold tree_serialize_header.
+      rewrite app_ass, app_ass.
+      unfold tree_serialize_subtree.
+      simpl. Admitted.
 
   Definition bool_encode_tree (t: tree) :=
     match t with
@@ -604,9 +601,9 @@ Eval compute in deserialize (serialize
   (stem nat 1 
     (stem nat 2 (stem nat 3 (leaf nat) (stem nat 4 (leaf nat) (leaf nat))) (leaf nat)) (leaf nat))) : option (tree nat * list bool).
 
-Eval compute in deserialize (serialize  (stem nat 2 (stem nat 3 (leaf nat) (stem nat 4 (leaf nat) (leaf nat))) (leaf nat))) : option (tree nat * list bool).
+Eval compute in deserialize (serialize (stem nat 2 (stem nat 3 (leaf nat) (stem nat 4 (leaf nat) (leaf nat))) (leaf nat))) : option (tree nat * list bool).
 
-Eval compute in deserialize (serialize (stem nat 1 (leaf nat) (leaf nat))) : option (tree nat * list bool).
+Eval compute in deserialize (serialize (stem nat 0 (leaf nat) (leaf nat))) : option (tree nat * list bool).
 
 Eval compute in deserialize (serialize (leaf nat)) : option (tree nat * list bool).
 
