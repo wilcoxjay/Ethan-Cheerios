@@ -1,5 +1,5 @@
 Require Import List.
-Require Import Vector.
+Require Import Arith.
 Import ListNotations.
 
 Class Serializer (A : Type) : Type :=
@@ -407,7 +407,7 @@ Section TreeSerializer.
         end
     end.
 
-  Fixpoint leaf_insertable (into node: tree) (path: list bool): Prop :=
+  Fixpoint leaf_insertable (into: tree) (path: list bool): Prop :=
     match into with
     | leaf => 
         match path with
@@ -417,8 +417,8 @@ Section TreeSerializer.
     | stem a l r =>
         match path with
         | [] => False
-        | true :: path => (leaf_insertable l node path)
-        | false :: path => (leaf_insertable r node path)
+        | true :: path => (leaf_insertable l path)
+        | false :: path => (leaf_insertable r path)
         end
     end.
 
@@ -435,7 +435,7 @@ Section TreeSerializer.
 
   Fixpoint tree_size (t:tree) : nat :=
     match t with
-    | leaf => 1
+    | leaf => 0
     | stem a l r => 1 + tree_size l + tree_size r
     end.
 
@@ -459,7 +459,7 @@ Section TreeSerializer.
     end.
 
   Definition tree_serialize (t: tree) : list bool :=
-    (tree_serialize_header t) ++ [false] ++ (tree_serialize_subtree t []).
+    (nat_serialize (tree_size t)) ++ [false] ++ (tree_serialize_subtree t []).
 
   Definition tree_deserialize_node (root :tree) (bools: list bool) : option (tree * list bool) :=
     match (list_deserialize bool BoolSerializer bools) with
@@ -467,23 +467,83 @@ Section TreeSerializer.
     | Some (location, bools) =>
       match (deserialize bools) with
       | None => None
-      | Some (a, bools) => Some (tree_insert root (stem a leaf leaf) (List.rev location), bools)
+      | Some (a, bools) => Some (tree_insert root (stem a leaf leaf) (rev location), bools)
       end
     end.
 
-  Fixpoint tree_deserialize_impl (root : tree) (bools : list bool) : option (tree * list bool):=
+  Fixpoint tree_deserialize_impl (remaining : nat) (root : tree) (bools : list bool) : option (tree * list bool) :=
+    match remaining with
+    | S n =>
+      match tree_deserialize_node root bools with
+      | None => None
+      | Some (root, bools) => tree_deserialize_impl n root bools
+      end
+    | _ => Some (root, bools)
+    end.
+
+  Fixpoint is_subpath (parent path: list bool) : bool := 
+    match parent, path with
+    | [], _ => true
+    | _, [] => false
+    | h_parent :: t_parent, h_path :: t_path => (Bool.eqb h_parent h_path) && (is_subpath t_parent t_path)
+    end.
+
+  Fixpoint tree_deserialize_subtree (remaining : nat) (root: tree) (path: list bool) (bools: list bool) : option (tree * list bool) :=
+    match remaining with
+    | S n => 
+      match (tree_deserialize_subtree n root path bools) with
+      | None => None
+      | Some (root, []) => Some (root, bools)
+      | Some (root, bools) => 
+        match (list_deserialize bool BoolSerializer bools) with
+        | None => None
+        | Some (location, bools) =>
+          match (is_subpath path (rev location)) with
+          | false => Some (root, bools)
+          | true => 
+            match (deserialize bools) with
+            | None => None
+            | Some (a, bools) => Some (tree_insert root (stem a leaf leaf) (rev location), bools)
+            end
+          end
+        end
+      end
+    | _ => Some (root, bools)
+    end.
+
+
+  Fixpoint tree_deserialize_size (bools : list bool) : option (nat * list bool):=
     match bools with
     | true :: bools =>
-      match (tree_deserialize_impl root bools) with
+      match tree_deserialize_size bools with
+      | Some (n, bools) => Some (S n, bools)
       | None => None
-      | Some (root, bools) => tree_deserialize_node root bools
       end
-    | false :: bools => Some (root, bools)
+    | false :: bools => Some (0, bools)
     | _ => None
     end.
 
   Definition tree_deserialize (bools: list bool) : option (tree * list bool) :=
-    tree_deserialize_impl leaf bools.
+    match nat_deserialize bools with 
+    | Some (size, bools) => tree_deserialize_impl size leaf bools
+    | None => None
+    end.
+
+  Lemma sublocation_child_sublocation: forall location parent sublocation: list bool,
+    is_subpath (rev parent) (rev location) = true -> is_subpath (rev parent) (rev (location ++ sublocation)) = true.
+  Proof.
+    intros location parent sublocation.
+    induction sublocation.
+    - Admitted.
+
+  Lemma subpath_child_subpath: forall path parent subpath: list bool,
+    is_subpath parent path = true -> is_subpath parent (path ++ subpath) = true.
+  Proof.
+    intros path parent subpath.
+    induction parent.
+    - simpl. reflexivity.
+    - intros. Admitted.
+    
 (*    serialized_fold tree_deserialize_node bools. *)
 (*
   Theorem tree_deser_ser_one_leaf: forall root : tree, forall bools: list bool, forall location: Binary,
@@ -534,7 +594,103 @@ Section TreeSerializer.
   Qed.
 *)
 
-  Theorem tree_preorder_deser_ser_identity: forall t : tree, forall bools: list bool,
+Definition placeholder := true.
+
+  Fixpoint skipped_branches (root : tree) (path : list bool) : list tree :=
+    match root, path with
+    | leaf, _ => [] (* The tree ran out before the path... probably shouldn't happen *)
+    | stem a l r, true :: path => r :: (skipped_branches l path) (* The ordering here may have to be flipped *)
+    | stem a l r, false :: path => l :: (skipped_branches r path)
+    | stem a l r, [] => [] (* Everything underneath will be seen *)
+    end.
+
+  Fixpoint unseen_branches_impl (current : tree) (path : list bool) (location: list bool) : list (tree * list bool) :=
+    match current, path with
+    | leaf, _ => [] (* The tree ran out before the path... probably shouldn't happen *)
+    | stem a l r, true :: path => (unseen_branches_impl l path (true::location)) ++ [(r, rev location)] (* The ordering here may have to be flipped *)
+    | stem a l r, false :: path => (unseen_branches_impl r path (false::location)) ++ [(l, rev location)]
+    | stem a l r, [] => [(stem a l r, location)] (* Everything underneath will be seen *)
+    end.
+
+  Definition unseen_branches (root : tree) (path : list bool) : list (tree * list bool) :=
+    unseen_branches_impl root path [].
+
+  Fixpoint skipped_branches_clean (current : tree) (path : list bool) : list (tree) :=
+    match current, path with
+    | leaf, _ => [] (* The tree ran out before the path... probably shouldn't happen *)
+    | stem a l r, true :: path => [r] ++ (skipped_branches_clean l path) (* Skpped the right *)
+    | stem a l r, false :: path => (skipped_branches_clean r path) (* Already been to the left *)
+    | stem a l r, [] => [stem a l r] (* Everything underneath will be seen *)
+    end.
+
+  Fixpoint reassemble_tree (root: tree) (path : list bool) (branches: list tree) : tree :=
+    match root, path, branches with 
+    | stem a l r, [], _ => stem a l r
+    | stem a l r, true :: path, [] => stem a l r
+    | stem a l r, true :: path, branch :: branches => stem a (reassemble_tree l path branches) branch
+    | stem a l r, false :: path, _  => stem a l (reassemble_tree r path branches)
+    | leaf, _, _ => leaf
+    end.
+
+  Fixpoint seen_tree (root : tree) (path : list bool) (*{struct path}*) : tree :=
+    match root, path with
+    | leaf, _ => leaf (* The tree ran out before the path... probably shouldn't happen *)
+    | stem a l r, true :: path => stem a (seen_tree l path) leaf
+    | stem a l r, false :: path => stem a l (seen_tree r path)
+    | stem a l r, [] => stem a l r (* Everything underneath will be observed *)
+    end.
+
+  Lemma skip_reassemble_whole : forall t : tree, forall path : list bool,
+    leaf_insertable t path ->
+      reassemble_tree (seen_tree t path) path (skipped_branches_clean t path) = t.
+  Proof.
+    induction t as [|a l IHL r IHR ]; intros path InTree.
+    - simpl. reflexivity.
+    - simpl.
+      destruct path.
+      + simpl. reflexivity.
+      + destruct b.
+        * simpl. 
+          rewrite IHL.
+          reflexivity.
+          simpl in InTree.
+          apply InTree.
+  Admitted.
+
+  Lemma tree_deser_ser_impl : forall a root : tree, forall location : list bool, forall bs : list bool, forall n : nat,
+(*      leaf_insertable root (rev location) -> *)
+      tree_deserialize_impl (tree_size a + n) root (tree_serialize_subtree a location ++ bs) = 
+        tree_deserialize_impl n (tree_insert a root (rev location)) bs.
+  induction a as [| a l IHL r IHR]; intros root location bs n.
+  - simpl. reflexivity.
+  - cbn - [tree_insert].
+    rewrite !app_ass.
+    unfold tree_deserialize_node.
+    rewrite list_deser_ser_identity.
+    rewrite deser_ser_identity.
+    rewrite <- plus_assoc.
+    rewrite IHL.
+    rewrite IHR.
+    f_equal.
+    
+
+  Lemma tree_deser_ser_partTree : forall seen : tree, forall location bools : list bool,
+    leaf_insertable root location ->
+      tree_deserialize ((nat_serialize (tree_size root)) ++ ) = Some (root, bools).
+
+  Lemma tree_deser_ser_subtree : forall a r : tree, forall i : list bool, forall bs : list bool, forall n : nat,
+      leaf_insertable r (rev i) ->
+      tree_deserialize_subtree n r (tree_serialize_subtree a  i ++ bs) = tree_deserialize_subtree n (tree_insert a r (rev i)) bs.
+  Proof.
+    intros a r i bs n insertable.
+    induction a as [|a L IHL R IHR].
+    - simpl. reflexivity.
+    - unfold tree_serialize_subtree.
+      rewrite app_ass, app_ass.
+      simpl.
+
+
+  Theorem tree_deser_ser_identity: forall t : tree, forall bools: list bool,
     (tree_deserialize ((tree_serialize t) ++ bools)) = Some (t, bools).
   Proof.
     intros.
@@ -551,24 +707,11 @@ Section TreeSerializer.
       unfold tree_serialize_subtree.
       simpl. Admitted.
 
-  Definition bool_encode_tree (t: tree) :=
-    match t with
-    | leaf => false
-    | stem a l r => true
-    end.
-
-  Fixpoint tree_serialize_structure (t : tree) : list bool :=
-    match t with
-    | leaf => [false]
-    | stem a l r => [true; bool_encode_tree l; bool_encode_tree r] ++
-       tree_serialize_structure l ++ tree_serialize_structure r
-    end.
-
   Global Instance TreeSerializer : Serializer (tree).
   Proof.
   exact {| serialize := tree_serialize;
            deserialize := tree_deserialize;
-           deser_ser_identity := tree_preorder_deser_ser_identity;
+           deser_ser_identity := tree_deser_ser_identity;
          |}.
   Defined.
 End TreeSerializer.
