@@ -459,7 +459,7 @@ Section TreeSerializer.
     end.
 
   Definition tree_serialize (t: tree) : list bool :=
-    (nat_serialize (tree_size t)) ++ [false] ++ (tree_serialize_subtree t []).
+    (nat_serialize (tree_size t)) ++ (tree_serialize_subtree t []).
 
   Definition tree_deserialize_node (root :tree) (bools: list bool) : option (tree * list bool) :=
     match (list_deserialize bool BoolSerializer bools) with
@@ -544,56 +544,6 @@ Section TreeSerializer.
     - simpl. reflexivity.
     - intros. Admitted.
     
-(*    serialized_fold tree_deserialize_node bools. *)
-(*
-  Theorem tree_deser_ser_one_leaf: forall root : tree, forall bools: list bool, forall location: Binary,
-    (tree_deserialize_node root ((tree_serialize_subtree leaf location) ++ bools)) = Some ((tree_insert root leaf location), bools).
-  Proof.
-    intros.
-    unfold tree_deserialize_node, tree_serialize_subtree, tree_serialize_node.
-    rewrite app_ass.
-    rewrite binary_deser_ser_identity.
-    simpl.
-    reflexivity.
-  Qed.
-
-  Lemma tree_deser_ser_node: forall t root : tree, forall bools: list bool, forall location: Binary,
-    (tree_deserialize_node root ((tree_serialize_node t location) ++ bools))
-     = Some (tree_insert root (tree_prune t) location, bools).
-  Proof.
-    intros t root bools.
-    unfold tree_deserialize_node.
-    destruct t.
-    - intros.
-      unfold tree_serialize_node.
-      rewrite app_ass.
-      unfold tree_deserialize_node.
-      simpl.
-      rewrite binary_deser_ser_identity.
-      reflexivity.
-    - intros.
-      unfold tree_serialize_node.
-      rewrite app_ass.
-      rewrite binary_deser_ser_identity.
-      simpl.
-      rewrite deser_ser_identity.
-      unfold tree_deserialize_node.
-      reflexivity.
-  Qed.
-
-  Lemma tree_header_comb: forall t : tree,
-    match t with 
-    | leaf => tree_serialize_header leaf
-    | stem a l r => [true] ++ tree_serialize_header l ++ tree_serialize_header r
-    end =
-    tree_serialize_header t.
-  Proof.
-    destruct t.
-    - reflexivity.
-    - simpl. reflexivity.
-  Qed.
-*)
-
 Definition placeholder := true.
 
   Fixpoint skipped_branches (root : tree) (path : list bool) : list tree :=
@@ -648,7 +598,7 @@ Definition placeholder := true.
     - simpl. reflexivity.
     - simpl.
       destruct path.
-      + simpl. reflexivity.
+      + trivial.
       + destruct b.
         * simpl. 
           rewrite IHL.
@@ -657,12 +607,126 @@ Definition placeholder := true.
           apply InTree.
   Admitted.
 
+  Lemma tree_insert_at_leaf : forall root : tree, forall path : list bool,
+    leaf_insertable root path ->
+      tree_insert root leaf path = root.
+  Proof.
+    induction root as [| a l IHL r IHR]; intros.
+    - destruct path.
+      + trivial.
+      + simpl in H. inversion H.
+    - unfold tree_insert; fold tree_insert.
+      destruct path.
+      + simpl in H. inversion H.
+      + simpl in H.
+        destruct b;
+          f_equal.
+        * apply IHL.
+          apply H.
+        * apply IHR.
+          apply H.
+  Qed.
+
+  Lemma tree_insert_into_leaf_l : forall root l r: tree, forall path: list bool, forall a: A, 
+    leaf_insertable root path -> 
+      tree_insert (tree_insert root (stem a leaf r) path) l (path ++ [true]) =
+      tree_insert root (stem a l r) path.
+  Proof.
+    induction root as [| a l IHL r IHR]; intros.
+    - destruct path.
+      + trivial.
+      + simpl in H. inversion H.
+    - destruct path; simpl in H. 
+      + inversion H.
+      + destruct b;
+        simpl;
+        f_equal.
+        * apply IHL, H.
+        * apply IHR, H.
+  Qed.
+
+  Lemma tree_insert_into_leaf_r : forall root r l: tree, forall path: list bool, forall a: A, 
+    leaf_insertable root path -> 
+      tree_insert (tree_insert root (stem a l leaf) path) r (path ++ [false]) =
+      tree_insert root (stem a l r) path.
+  Proof. (* Is there a way to reuse proof reasoning, like from above? *)
+    induction root as [| a l IHL r IHR]; intros.
+    - destruct path.
+      + trivial.
+      + simpl in H. inversion H.
+    - destruct path; simpl in H. 
+      + inversion H.
+      + destruct b;
+        simpl;
+        f_equal.
+        * apply IHL, H.
+        * apply IHR, H.
+  Qed.
+
+  Lemma tree_insert_into_empty : forall root l r : tree, forall path: list bool, forall a: A, 
+    leaf_insertable root path -> 
+      tree_insert (
+        tree_insert (tree_insert root (stem a leaf leaf) path) l 
+          (path ++ [true])) r (path ++ [false]) =
+      tree_insert root (stem a l r) path.
+  Proof.
+    intros.
+    rewrite tree_insert_into_leaf_l.
+    rewrite tree_insert_into_leaf_r.
+    reflexivity.
+    apply H.
+    apply H.
+  Qed.
+
+  Lemma tree_insertable_after_r : forall (root l : tree) (a : A) (path : list bool),
+  leaf_insertable root path ->
+    leaf_insertable (tree_insert root (stem a l leaf) path) (path ++ [false]).
+  Proof.
+    induction root as [| a l IHL r IHR]; intros.
+    - simpl.
+      destruct path.
+      + trivial.
+      + simpl in H. inversion H.
+    - destruct path.
+      + simpl in H. inversion H.
+      + simpl.
+        simpl in H.
+        destruct b.
+        * apply IHL.
+          apply H.
+        * apply IHR.
+          apply H.
+  Qed.
+
+  Lemma tree_insertable_after_l : forall (root r : tree) (a : A) (path : list bool),
+  leaf_insertable root path ->
+    leaf_insertable (tree_insert root (stem a leaf r) path) (path ++ [true]).
+  Proof.
+    induction root as [| a l IHL r IHR]; intros.
+    - simpl.
+      destruct path.
+      + trivial.
+      + simpl in H. inversion H.
+    - destruct path.
+      + simpl in H. inversion H.
+      + simpl.
+        simpl in H.
+        destruct b.
+        * apply IHL.
+          apply H.
+        * apply IHR.
+          apply H.
+  Qed.
+
   Lemma tree_deser_ser_impl : forall a root : tree, forall location : list bool, forall bs : list bool, forall n : nat,
-(*      leaf_insertable root (rev location) -> *)
+      leaf_insertable root (rev location) ->
       tree_deserialize_impl (tree_size a + n) root (tree_serialize_subtree a location ++ bs) = 
-        tree_deserialize_impl n (tree_insert a root (rev location)) bs.
-  induction a as [| a l IHL r IHR]; intros root location bs n.
-  - simpl. reflexivity.
+        tree_deserialize_impl n (tree_insert root a (rev location)) bs.
+  induction a as [| a l IHL r IHR]; intros root location bs n InTree.
+  - simpl.
+    rewrite tree_insert_at_leaf. 
+    reflexivity.
+    apply InTree.
   - cbn - [tree_insert].
     rewrite !app_ass.
     unfold tree_deserialize_node.
@@ -672,8 +736,19 @@ Definition placeholder := true.
     rewrite IHL.
     rewrite IHR.
     f_equal.
-    
+    rewrite tree_insert_into_empty.
+      reflexivity.
+    apply InTree.
+      rewrite tree_insert_into_leaf_l.
+      simpl.
+      apply tree_insertable_after_r.
+      apply InTree.
+      apply InTree.
+    apply tree_insertable_after_l.
+      apply InTree.
+  Qed.
 
+(* For reassemble
   Lemma tree_deser_ser_partTree : forall seen : tree, forall location bools : list bool,
     leaf_insertable root location ->
       tree_deserialize ((nat_serialize (tree_size root)) ++ ) = Some (root, bools).
@@ -687,25 +762,25 @@ Definition placeholder := true.
     - simpl. reflexivity.
     - unfold tree_serialize_subtree.
       rewrite app_ass, app_ass.
-      simpl.
+      simpl. *)
 
 
   Theorem tree_deser_ser_identity: forall t : tree, forall bools: list bool,
     (tree_deserialize ((tree_serialize t) ++ bools)) = Some (t, bools).
   Proof.
-    intros.
-    unfold tree_deserialize, tree_serialize.
-    induction t as [|a L IHL R IHR].
-    - unfold tree_deserialize_impl, tree_deserialize_node, tree_serialize_header.
-      rewrite app_ass, app_ass.
-      simpl. 
-      reflexivity.
-    - (* unfold tree_deserialize_impl, tree_deserialize_node, tree_serialize_header, serialized_fold. *)
-      rewrite app_ass, app_ass.
-      unfold tree_serialize_header.
-      rewrite app_ass, app_ass.
-      unfold tree_serialize_subtree.
-      simpl. Admitted.
+  induction t; intros.
+  - unfold tree_deserialize. 
+    simpl. reflexivity.
+  - unfold tree_deserialize, tree_serialize.
+    rewrite app_ass. 
+    rewrite nat_deser_ser_identity.
+    rewrite (plus_n_O (tree_size (stem a t1 t2))).
+    rewrite tree_deser_ser_impl.
+    simpl.
+    reflexivity.
+    simpl.
+    reflexivity.
+  Qed.
 
   Global Instance TreeSerializer : Serializer (tree).
   Proof.
