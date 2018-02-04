@@ -534,7 +534,7 @@ Section TreeSerializer.
   Proof.
     intros location parent sublocation.
     induction sublocation.
-    - Admitted.
+    - Abort.
 
   Lemma subpath_child_subpath: forall path parent subpath: list bool,
     is_subpath parent path = true -> is_subpath parent (path ++ subpath) = true.
@@ -542,7 +542,7 @@ Section TreeSerializer.
     intros path parent subpath.
     induction parent.
     - simpl. reflexivity.
-    - intros. Admitted.
+    - intros. Abort.
     
 Definition placeholder := true.
 
@@ -605,7 +605,7 @@ Definition placeholder := true.
           reflexivity.
           simpl in InTree.
           apply InTree.
-  Admitted.
+  Abort.
 
   Lemma tree_insert_at_leaf : forall root : tree, forall path : list bool,
     leaf_insertable root path ->
