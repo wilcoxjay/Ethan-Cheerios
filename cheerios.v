@@ -768,13 +768,11 @@ Definition placeholder := true.
   Theorem tree_deser_ser_identity: forall t : tree, forall bools: list bool,
     (tree_deserialize ((tree_serialize t) ++ bools)) = Some (t, bools).
   Proof.
-  induction t; intros.
-  - unfold tree_deserialize. 
-    simpl. reflexivity.
-  - unfold tree_deserialize, tree_serialize.
-    rewrite app_ass. 
+    intros.
+    unfold tree_deserialize, tree_serialize.
+    rewrite app_ass.
     rewrite nat_deser_ser_identity.
-    rewrite (plus_n_O (tree_size (stem a t1 t2))).
+    rewrite (plus_n_O (tree_size t)).
     rewrite tree_deser_ser_impl.
     simpl.
     reflexivity.
