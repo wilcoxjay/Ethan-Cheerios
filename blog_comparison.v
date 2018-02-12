@@ -4,9 +4,9 @@ into a linear arrangement. In practice, this linear arrangement is usually
 a list or stream of bytes.
 
 In this post, we will explore different strategies for performing this mapping
-and it's effects. First our formal notion of Serialization will be introduced,
+and its effects. First our formal notion of serialization will be introduced,
 and then we will compare two strategies of laying out the information encoded
-in list and a binary tree.
+in a list and a binary tree.
 
 In addition, the `.v` for this post may be found [here]() if you would
 like to step through some of the proofs or see omitted details.
@@ -36,20 +36,21 @@ Class Serializer (A : Type) : Type := {
 (**
  The serialized form used here is a list of booleans for simplicity,
 but this could be replaced with another more sensible structure such
-as a stream of bytes. The `option` return type of `deserialize` allows 
-for failure in the case of malformed input. The `list bool` is the 
-leftover data after deserialization. It is present for sake of composibility.
+as a stream of bytes. The `option` return type of `deserialize` allows
+for failure in the case of malformed input. The `list bool` in the return type is the
+leftover data after deserialization. It is present for sake of composability.
 Without it there would be no way to tell how much of the stream was consumed
 in the process of deserialization, and no way to tell where to start
-deserializing the next chunk of information. Our identity theorem simply
-requires that for any given input serialization and deserialization produces
+deserializing the next chunk of information.
+Our identity theorem simply
+requires that for any given input, serialization and deserialization produces
 the same output and consumes no extra information from the stream. Notably, it
 does not say anything about malformed streams or that multiple streams could
 deserialize to the same result.
 
 To demonstrate this, we will build a simple (inefficient) serializer/deserializer
 for `nat`s. The correctness proofs tend to be straightforward and repetitive, but
-is included here to show the structure.
+this first one is included here to show the structure.
 *)
 
 (*begin code*)
@@ -140,8 +141,9 @@ Fixpoint nat_serialize_broken (n : nat) : list bool :=
   | S n => [true] ++ (nat_serialize n)
   end.
 
-(* This information about the structure of the encoded data is crutial to the well-formedness
-of a serializer/deserializer. *)
+(* This information about the structure of the encoded data is crucial to the well-formedness
+of a serializer/deserializer.
+ *)
 
 (*
 ## List Serialization
@@ -149,7 +151,8 @@ of a serializer/deserializer. *)
 As data structures become more sophisticated than a pair, they gain information about their
 structure. For a list this information can be observed as its size, and for a binary tree
 this might look like its shape. A pair does not have this information because there are
-always two elements in a pair.
+always two elements in a pair. In other words, a pair's shape is always known in advance,
+and does not need to be encoded.
 
 When serialization is performed with the structure up front, we can put all the information
 about structure at the beginning of the stream and then fill in the structure as we parse the
