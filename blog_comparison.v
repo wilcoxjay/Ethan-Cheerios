@@ -1,4 +1,11 @@
 (**
+In this post...
+  - Introduce Serialization
+  - Compare layouts with list
+  - Compare layouts with tree
+
+In addition, the `.v` for this post may be found [here]() if you would
+like to step through some of the proofs or see omitted details.
 
 ## Serialization
 Our definition of Serialization includes three things: a serializer,
