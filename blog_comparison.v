@@ -1,8 +1,12 @@
 (**
-In this post...
-  - Introduce Serialization
-  - Compare layouts with list
-  - Compare layouts with tree
+Serialization can be described as the process of mapping some input data
+into a linear arrangement. In practice, this linear arrangement is usually
+a list or stream of bytes.
+
+In this post, we will explore different strategies for performing this mapping
+and it's effects. First our formal notion of Serialization will be introduced,
+and then we will compare two strategies of laying out the information encoded
+in list and a binary tree.
 
 In addition, the `.v` for this post may be found [here]() if you would
 like to step through some of the proofs or see omitted details.
@@ -130,7 +134,7 @@ into the stream itself. For example with the following `nat_serialize`, deserial
 of `nat * nat` would become problematic.
 *)
 
-Fixpoint nat_serialize_bad (n : nat) : list bool :=
+Fixpoint nat_serialize_broken (n : nat) : list bool :=
   match n with
   | O => []
   | S n => [true] ++ (nat_serialize n)
@@ -139,7 +143,29 @@ Fixpoint nat_serialize_bad (n : nat) : list bool :=
 (* This information about the structure of the encoded data is crutial to the well-formedness
 of a serializer/deserializer. *)
 
+(*
+## List Serialization
 
+As data structures become more sophisticated than a pair, they gain information about their
+structure. For a list this information can be observed as its size, and for a binary tree
+this might look like its shape. A pair does not have this information because there are
+always two elements in a pair.
+
+When serialization is performed with the structure up front, we can put all the information
+about structure at the beginning of the stream and then fill in the structure as we parse the
+data for the elements. For a list this information is simply the length. It can be encoded
+before all the elements as shown:
+
+[list_front.png]
+
+In code this looks like:
+*)
+
+
+(*
+## Embedded Structure Serialization
+
+*)
 
 
 
