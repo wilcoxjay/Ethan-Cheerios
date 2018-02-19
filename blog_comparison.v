@@ -20,15 +20,15 @@ Require Import List Arith.
 Import ListNotations.
 
 (*begin code*)
-(*Variable A:Type.
-Definition serialize := A -> list bool.
-Definition deserialize := list bool -> option (A * list bool).
-Definition deser_ser_spec := forall a : A, forall bools: list bool, 
-      (deserialize (serialize a ++ bools)) = Some (a, bools).*)
+Definition serialize_ (A: Type) := A -> list bool. (* TODO: How do I use these in my actual definitions? *)
+Definition deserialize_ (A: Type) := list bool -> option (A * list bool).
+Definition ser_deser_spec_ (A: Type) (ser : serialize_ A) (deser : deserialize_ A) := 
+  forall a : A, forall bools: list bool, 
+      (deser (ser a ++ bools)) = Some (a, bools).
 Class Serializer (A : Type) : Type := {
     serialize : A -> list bool;
     deserialize : list bool -> option (A * list bool);
-    deser_ser_identity : forall a : A, forall bools: list bool, 
+    ser_deser_identity : forall a : A, forall bools: list bool, 
       (deserialize (serialize a ++ bools)) = Some (a, bools);
 }.
 
@@ -54,6 +54,7 @@ this first one is included here to show the structure.
 *)
 
 (*begin code*)
+(*Fixpoint nat_serialize (n : nat) : serializer nat :=*)
 Fixpoint nat_serialize (n : nat) : list bool :=
   match n with
   | O => [false]
@@ -71,7 +72,7 @@ Fixpoint nat_deserialize (bools : list bool) : option (nat * list bool) :=
   | [] => None (* Deserializing an empty stream *)
   end.
 
-Theorem nat_deser_ser_identity : forall n : nat, forall bools: list bool, 
+Theorem nat_ser_deser_identity : forall n : nat, forall bools: list bool, 
       (nat_deserialize (nat_serialize n ++ bools)) = Some (n, bools).
 Proof.
   induction n; intros.
@@ -86,7 +87,7 @@ Instance NatSerializer : Serializer nat.
 Proof.
 exact {| serialize := nat_serialize;
          deserialize := nat_deserialize;
-         deser_ser_identity := nat_deser_ser_identity;
+         ser_deser_identity := nat_ser_deser_identity;
        |}.
 Defined.
 
@@ -116,14 +117,14 @@ Definition pair_deserialize (bools : list bool) : option ((A * B) * list bool) :
   end.
 (*end code*)
 
-Theorem pair_deser_ser_identity : forall p : A * B, forall bools: list bool, 
+Theorem pair_ser_deser_identity : forall p : A * B, forall bools: list bool, 
       (pair_deserialize (pair_serialize p ++ bools)) = Some (p, bools).
 Proof.
   intros.
   unfold pair_serialize.
   rewrite app_ass.
   unfold pair_deserialize.
-  rewrite deser_ser_identity, deser_ser_identity.
+  rewrite ser_deser_identity, ser_deser_identity.
   rewrite <- surjective_pairing.
   reflexivity.
 Qed.
@@ -164,6 +165,53 @@ before all the elements as shown:
 In code this looks like:
 *)
 
+(*begin code*)
+Fixpoint list_serialize_elements (l : list nat) : list bool :=
+  match l with
+  | [] => []
+  | h :: t => nat_serialize h ++ list_serialize_elements t
+  end.
+
+Definition list_serialize (l : list nat) : list bool :=
+  nat_serialize (length l) ++ list_serialize_elements l.
+
+
+Fixpoint list_deserialize_elements (size : nat) (bools : list bool) :  option (list nat * list bool) :=
+  match size with
+  | O => Some ([], bools)
+  | S size => 
+    match (nat_deserialize bools) with
+    | None => None
+    | Some (n, bools) =>
+      match (list_deserialize_elements size bools) with
+      | None => None
+      | Some (tail, bools) => Some (n :: tail, bools)
+      end
+    end
+  end.
+
+Definition list_deserialize (bools : list bool) : option (list nat * list bool) :=
+  match (nat_deserialize bools) with
+  | None => None
+  | Some (size, bools) => list_deserialize_elements size bools
+  end.
+(*end code*)
+
+Theorem list_ser_deser_identity : forall l : list nat, forall bools: list bool, 
+      (list_deserialize (list_serialize l ++ bools)) = Some (l, bools).
+Proof.
+  intros.
+  unfold list_serialize, list_deserialize.
+  rewrite app_ass.
+  rewrite nat_ser_deser_identity.
+  induction l as [|h t].
+  - trivial.
+  - simpl.
+    rewrite app_ass.
+    rewrite nat_ser_deser_identity. (* Element ser/deser identity *)
+    rewrite IHt.
+    reflexivity.
+Qed.
 
 (*
 ## Embedded Structure Serialization
