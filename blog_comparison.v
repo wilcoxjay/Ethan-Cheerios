@@ -11,7 +11,7 @@ in a list and a binary tree.
 In addition, the `.v` for this post may be found [here]() if you would
 like to step through some of the proofs or see omitted details.
 
-## Serialization
+## Defining Serialization
 Our definition of Serialization includes three things: a serializer,
 a deserializer, and a proof of correctness.
 *)
@@ -20,9 +20,10 @@ Require Import List Arith.
 Import ListNotations.
 
 (*begin code*)
-Definition serialize_ (A: Type) := A -> list bool. (* TODO: How do I use these in my actual definitions? *)
-Definition deserialize_ (A: Type) := list bool -> option (A * list bool).
-Definition ser_deser_spec_ (A: Type) (ser : serialize_ A) (deser : deserialize_ A) := 
+(* TODO: How do I use these in my actual definitions? (do I need to for ser/deser?) *)
+Definition serializer (A: Type) := A -> list bool. 
+Definition deserializer (A: Type) := list bool -> option (A * list bool).
+Definition ser_deser_spec_ (A: Type) (ser : serializer A) (deser : deserializer A) := 
   forall a : A, forall bools: list bool, 
       (deser (ser a ++ bools)) = Some (a, bools).
 Class Serializer (A : Type) : Type := {
@@ -34,15 +35,12 @@ Class Serializer (A : Type) : Type := {
 
 (*end code*)
 (**
- The serialized form used here is a list of booleans for simplicity,
-but this could be replaced with another more sensible structure such
-as a stream of bytes. The `option` return type of `deserialize` allows
+ The serialized form used here is a list of booleans for simplicity.
+[^](A linked list of booleans is not computationally efficient, and could be replaced with 
+another more sensible structure such as a stream of bytes). The `option` return type of `deserialize` allows
 for failure in the case of malformed input. The `list bool` in the return type is the
-leftover data after deserialization. It is present for sake of composability.
-Without it there would be no way to tell how much of the stream was consumed
-in the process of deserialization, and no way to tell where to start
-deserializing the next chunk of information.
-Our identity theorem simply
+leftover data after deserialization. It provides composibility in a similarly to a
+state monad. Our identity theorem simply
 requires that for any given input, serialization and deserialization produces
 the same output and consumes no extra information from the stream. Notably, it
 does not say anything about malformed streams or that multiple streams could
@@ -72,13 +70,18 @@ Fixpoint nat_deserialize (bools : list bool) : option (nat * list bool) :=
   | [] => None (* Deserializing an empty stream *)
   end.
 
-Theorem nat_ser_deser_identity : forall n : nat, forall bools: list bool, 
-      (nat_deserialize (nat_serialize n ++ bools)) = Some (n, bools).
+Theorem nat_ser_deser_identity :
+  ser_deser_spec_ nat nat_serialize nat_deserialize. 
+(* Writing Note: I like using this definition because it communicates how the spec is
+   defined between a particular ser/deser pair
+ *)
 Proof.
-  induction n; intros.
+(*TODO Is there a way to unfold and rename? It's a shame to use a instead of n in the inductive step. *)
+  unfold ser_deser_spec_.
+  induction a; intros.
   - trivial.
   - simpl.
-    rewrite IHn.
+    rewrite IHa.
     reflexivity.
 Qed.
 (*end code*)
@@ -91,8 +94,9 @@ exact {| serialize := nat_serialize;
        |}.
 Defined.
 
-(* And now to demonstrate composibility, we will implement a serializer/deserializer
-for a pair.
+(**
+Since this post discusses higher order (JW:right terminology?) types, we need to see how composibility works.
+Here, we show serialization for a simple type which requires composibility to implement, the pair.
 *)
 
 Module PairSerializer.
@@ -101,8 +105,6 @@ Variable serA : Serializer A.
 Variable serB : Serializer B.
 
 (*begin code*)
-(*Definition pair_serialize ((a,b) : A * B) : list bool :=
-  serialize a ++ serialize b.*)
 Definition pair_serialize (p : A * B) : list bool :=
   serialize (fst p) ++ serialize (snd p).
 
@@ -117,9 +119,10 @@ Definition pair_deserialize (bools : list bool) : option ((A * B) * list bool) :
   end.
 (*end code*)
 
-Theorem pair_ser_deser_identity : forall p : A * B, forall bools: list bool, 
-      (pair_deserialize (pair_serialize p ++ bools)) = Some (p, bools).
+Theorem pair_ser_deser_identity : 
+  ser_deser_spec_ (A * B) pair_serialize pair_deserialize.
 Proof.
+  unfold ser_deser_spec_.
   intros.
   unfold pair_serialize.
   rewrite app_ass.
@@ -131,7 +134,7 @@ Qed.
 
 End PairSerializer.
 
-(** Notice that the information about when to stop deserialization must be encoded
+(** Notice that the information about when to stop deserialization of each element must be encoded
 into the stream itself. For example with the following `nat_serialize`, deserialization
 of `nat * nat` would become problematic.
 *)
@@ -142,23 +145,31 @@ Fixpoint nat_serialize_broken (n : nat) : list bool :=
   | S n => [true] ++ (nat_serialize n)
   end.
 
-(* This information about the structure of the encoded data is crucial to the well-formedness
-of a serializer/deserializer.
+(**
+Under this definition, it's unclear what desearialazing the `nat * nat` `[true, true true]` should
+result in. It could be `(0,3)`, `(1,2)`, `(2,1)` or `(3,0)`. The information about when to stop must be
+encoded in the stream itself in one form or another. Consider the serialized `nat * nat` `[true, false,
+true, true, false]`. It is unambigiously `(1, 2)`. When deserializing it is known precisely when each `nat`
+ finishes, and transitively when the pair finishes. This information about the structure of the encoded
+data is crucial to the well-formedness of a serializer/deserializer.
  *)
 
-(*
+(**
 ## List Serialization
 
-As data structures become more sophisticated than a pair, they gain information about their
+As data structures become more sophisticated than a pair, they gain more information about their
 structure. For a list this information can be observed as its size, and for a binary tree
 this might look like its shape. A pair does not have this information because there are
 always two elements in a pair. In other words, a pair's shape is always known in advance,
-and does not need to be encoded.
+and does not need to be encoded. Another interesting example are vectors: if you know the type,
+you know the length and therefore the shape.
 
-When serialization is performed with the structure up front, we can put all the information
-about structure at the beginning of the stream and then fill in the structure as we parse the
-data for the elements. For a list this information is simply the length. It can be encoded
-before all the elements as shown:
+When serialization is performed with the structure up front, the information
+about structure comes first in the stream. When deserializating, we can build the structure and then
+fill it in as we parse the elements. In the case of a list this information is simply the length. Since
+the length is a `nat`, the structure we build is just the right number of recursive calls.
+
+The encoding is laid out as follows:
 
 [list_front.png]
 
@@ -197,14 +208,15 @@ Definition list_deserialize (bools : list bool) : option (list nat * list bool) 
   end.
 (*end code*)
 
-Theorem list_ser_deser_identity : forall l : list nat, forall bools: list bool, 
-      (list_deserialize (list_serialize l ++ bools)) = Some (l, bools).
+Theorem list_ser_deser_identity : 
+  ser_deser_spec_ (list nat) list_serialize list_deserialize.
 Proof.
+  unfold ser_deser_spec_.
   intros.
   unfold list_serialize, list_deserialize.
   rewrite app_ass.
   rewrite nat_ser_deser_identity.
-  induction l as [|h t].
+  induction a as [|h t]. (* TODO was l, now a *)
   - trivial.
   - simpl.
     rewrite app_ass.
@@ -213,12 +225,52 @@ Proof.
     reflexivity.
 Qed.
 
+(**
+Motivate embedded shape
+*)
+
+Fixpoint list_serialize_em (l : list nat) : list bool :=
+  match l with
+  | [] => [false]
+  | h :: t => [true] ++ nat_serialize h ++ list_serialize_em t
+  end.
+
+(* TODO: How do I "Abort" a fixpoint definition? *)
+Fixpoint list_deserialize_em (bools : list bool) :  option (list nat * list bool) :=
+  match bools with
+  | [] => None
+  | false :: bools => Some ([], bools)
+  | true :: bools =>
+    match (nat_deserialize bools) with
+    | None => None
+    | Some (n, bools) =>
+      match (list_deserialize_em bools) with
+      | None => None
+      | Some (tail, bools) => Some (n :: tail, bools)
+      end
+    end
+  end.
+(*end code*)
+
+(* No theorem! You can't prove code that won't compile! *)
+
 (*
-## Embedded Structure Serialization
+## Binary Tree Serialization
 
 *)
 
 
+(* ## Conclusion
+Beyond practical necesity, serialization can be used as a forcing function to
+understand the information contained within data structures. By requiring a well
+defined format, the information contained in that structure may be deduced and formalized.
+For example, a list needs to have a length, and a tree needs to have a shape. From there,
+the encoding of this information is flexible, although some encodings are easier to work with
+than others.
+ *)
+
+(* Notes: *)
+(* Vocabulary choice: Embedded and up-front. Are there better words to describe this? *)
 
 
 
