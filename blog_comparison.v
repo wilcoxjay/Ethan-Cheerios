@@ -161,13 +161,13 @@ As data structures become more sophisticated than a pair, they gain more informa
 structure. For a list this information can be observed as its size, and for a binary tree
 this might look like its shape. A pair does not have this information because there are
 always two elements in a pair. In other words, a pair's shape is always known in advance,
-and does not need to be encoded. Another interesting example are vectors: if you know the type,
-you know the length and therefore the shape.
+and does not need to be encoded. Another interesting example in this category are vectors:
+if you know a vector's type, you know the length and therefore the shape.
 
 When serialization is performed with the structure up front, the information
 about structure comes first in the stream. When deserializating, we can build the structure and then
-fill it in as we parse the elements. In the case of a list this information is simply the length. Since
-the length is a `nat`, the structure we build is just the right number of recursive calls.
+fill it in as we parse the elements. In the case of a list this structure is simply the length
+represented as a `nat`.
 
 The encoding is laid out as follows:
 
@@ -226,7 +226,18 @@ Proof.
 Qed.
 
 (**
-Motivate embedded shape
+An alternitive to putting the structure up front is to embed it with the data. This appears as
+follows:
+
+[list_embedded.png]
+
+There are a couple of advantages to this which relate to when the information about the structure is
+known. This structure allows lists of unknown (potentially infinite) size to be serialized. It also
+losens the requirement that a structure must be built first in deserialization. This isn't a big deal
+for lists, but it can be helpful with more complicated structures.
+
+Let's see what this looks like in code.
+
 *)
 
 Fixpoint list_serialize_em (l : list nat) : list bool :=
@@ -235,6 +246,12 @@ Fixpoint list_serialize_em (l : list nat) : list bool :=
   | h :: t => [true] ++ nat_serialize h ++ list_serialize_em t
   end.
 
+(**
+Since information about when to stop deserializating is not known until the end, there is no structure
+to recurse on. In this way, we conjecture that it's impossible to define the deserialization function
+without using general recursion. An attempted definition is given below:
+(TODO: Might be a good idea to use more formal terminology here, I wasn't sure how to phrase it)
+*)
 (* TODO: How do I "Abort" a fixpoint definition? *)
 Fixpoint list_deserialize_em (bools : list bool) :  option (list nat * list bool) :=
   match bools with
@@ -252,15 +269,17 @@ Fixpoint list_deserialize_em (bools : list bool) :  option (list nat * list bool
   end.
 (*end code*)
 
-(* No theorem! You can't prove code that won't compile! *)
+(* No theorem! You can't prove code that won't typecheck! *)
 
-(*
+(**
 ## Binary Tree Serialization
 
 *)
 
 
-(* ## Conclusion
+(**
+## Conclusion
+
 Beyond practical necesity, serialization can be used as a forcing function to
 understand the information contained within data structures. By requiring a well
 defined format, the information contained in that structure may be deduced and formalized.
