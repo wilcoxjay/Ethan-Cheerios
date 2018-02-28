@@ -248,11 +248,11 @@ Fixpoint list_serialize_em (l : list nat) : list bool :=
 
 (**
 Since information about when to stop deserializating is not known until the end, there is no structure
-to recurse on. In this way, we conjecture that it's impossible to define the deserialization function
+to recurse on. In this way, we conjecture that it's impossible to define this deserialization function
 without using general recursion. An attempted definition is given below:
 (TODO: Might be a good idea to use more formal terminology here, I wasn't sure how to phrase it)
 *)
-(* TODO: How do I "Abort" a fixpoint definition? *)
+(* TODO: How do I "Abort" a fixpoint? *)
 Fixpoint list_deserialize_em (bools : list bool) :  option (list nat * list bool) :=
   match bools with
   | [] => None
@@ -272,9 +272,69 @@ Fixpoint list_deserialize_em (bools : list bool) :  option (list nat * list bool
 (* No theorem! You can't prove code that won't typecheck! *)
 
 (**
-## Binary Tree Serialization
+## Binary Trees
+
+To continue exploring this idea of serializing shape, we neeed to look at a more complicated data
+structure such as a binary tree. Our definition of a binary tree is straightforward:
+*)
+
+Module TreeSerializer.
+Variable A : Type.
+
+(*begin code*)
+Inductive tree: Type := 
+| leaf : tree
+| node : A -> tree -> tree -> tree.
+(*end code*)
+
+(**
+For the embedded serializer, the concept of a "path" is needed. A path is simply the list of
+directions taken from the root to reach some node. We'll use true to represent left and false to 
+represent right. Below is the path [true, false].
+
+[path.png]
+
+The only important thing to know about paths is that when recursing into a tree the direction traveled
+must be recorded at the end of the list rather than at the start. If right was first in the list, then
+it should remain first throughout. In our definitions, this concept is represented as reversing the
+breadcrumbs which were appended to the head of the list, after the recursion has finished.
 
 *)
+
+(**
+Using the concept of a path, the position and data of any node can be serialized. When this is done for
+all nodes in the tree, all information captured by the original data structure has been encoded.
+
+Even though an embedded structure is impossible to deserialize without general recursion, using an
+embedded structure is still possible if there is just enough information up front to recurse on. The
+number of stems in the tree provides a nice metric.
+
+The encoding using an embedded structure looks like this:
+
+[tree_embedded.png]
+
+Serialization is performed as follows:
+
+*)
+
+(**
+Deserialization is more complicated. As elements are parsed, they are inserted into the existing structure/As elements are parsed their data and path are recorded and then inserted order.
+(JW: Does it make sense to deserialize as list bool -> list (path * A) -> tree inserts or skip the list step
+and do list bool -> tree inserts? I think the first is easier to reason about and it matches up with the
+structure pretty well. On the other hand, the second method involves fewer moving pieces and is more direct.)
+The insertion function used is not particularly robust, however as long as any given node is preceded by all
+of its parents no issues arise. This is the case with a preorder traversal, and also with a BFS, so it meets
+our needs.
+*)
+
+(* Code to be filled in later *)
+
+(**
+Alternatively, the structure may be recorded at the beginning and then filled in as the tree is parsed.
+This technique requires serialization and deserialization to be a two step process, however (something better).
+*)
+
+End TreeSerializer.
 
 
 (**

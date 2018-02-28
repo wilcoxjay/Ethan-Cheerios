@@ -488,6 +488,7 @@ Section TreeSerializer.
     | h_parent :: t_parent, h_path :: t_path => (Bool.eqb h_parent h_path) && (is_subpath t_parent t_path)
     end.
 
+(*
   Fixpoint tree_deserialize_subtree (remaining : nat) (root: tree) (path: list bool) (bools: list bool) : option (tree * list bool) :=
     match remaining with
     | S n => 
@@ -510,7 +511,7 @@ Section TreeSerializer.
       end
     | _ => Some (root, bools)
     end.
-
+*)
 
   Fixpoint tree_deserialize_size (bools : list bool) : option (nat * list bool):=
     match bools with
