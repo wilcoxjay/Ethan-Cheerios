@@ -99,7 +99,7 @@ Since this post discusses higher order (JW:right terminology?) types, we need to
 Here, we show serialization for a simple type which requires composibility to implement, the pair.
 *)
 
-Module PairSerializer.
+Section PairSerializer.
 Variable A B : Type.
 Variable serA : Serializer A.
 Variable serB : Serializer B.
@@ -278,8 +278,9 @@ To continue exploring this idea of serializing shape, we neeed to look at a more
 structure such as a binary tree. Our definition of a binary tree is straightforward:
 *)
 
-Module TreeSerializer.
+Section TreeSerializer.
 Variable A : Type.
+Variable serA : Serializer A.
 
 (*begin code*)
 Inductive tree: Type := 
@@ -332,8 +333,69 @@ our needs.
 (**
 Alternatively, the structure may be recorded at the beginning and then filled in as the tree is parsed.
 This technique requires serialization and deserialization to be a two step process, however (something better).
+
+The shape is encoded with two symbols. One signifies a `node` which requires two complete trees, and the other
+signifies a leaf which is itself a tree. When no nodes need to be satisfied, then the tree shape is complete.
+The shape is stored as a `tree unit`. This works because `unit` contains no information, so `tree unit` only
+contains the information that `tree A` describes, which is the shape. Since we record this shape in a preorder
+traversal, the elements are also encoded in the same order, which makes it easy to marry the two together.
+
+To make the recursion easier, the same trick of encoding the length will be used. (TODO Is this nececary? It shouldn't be, but I can't find a way to write the shape deserializer without it)
+
+The structure is encoded as follows:
+
+[tree_upfront.png]
+
+And in code:
 *)
 
+(*begin code*)
+Fixpoint tree_serialize_shape (t : tree) : list bool :=
+  match t with
+  | leaf => [false]
+  | node _ l r => [true] ++ tree_serialize_shape l ++ tree_serialize_shape r
+  end.
+
+Fixpoint tree_serialize_data_preorder (t : tree) : list bool :=
+  match t with
+  | leaf => [] (* No data contained within leaf nodes *)
+  | node a l r => (serialize a) ++ (tree_serialize_data_preorder l) ++ (tree_serialize_data_preorder r)
+  end.
+
+Definition tree_serialize (t: tree) : list bool :=
+  tree_serialize_shape t ++ tree_serialize_data_preorder t.
+
+Definition tree_unit := tree.
+
+(* JW: What's the best way to do this? I can't put it in the section because it's assumed that tree = tree A*)
+End TreeSerializer.
+Fixpoint tree_desearialize_shape (remaining: nat) (bools : list bool) : option (tree unit * list bool) :=
+  match bools with
+  | false :: bools => Some (leaf unit, bools)
+  | true :: bools => 
+    match (tree_desearialize_shape bools) with
+    | None => None
+    | Some (r, bools) =>
+      match (tree_desearialize_shape bools) with
+      | None => None
+      | Some (l, bools) => Some (node unit tt l r, bools)
+      end
+    end
+  | _ => None
+  end.
+Section TreeSerializer.
+
+Fixpoint tree_deserialize_elements (remaining: nat) (bools : list bool) : option (list A * list bool) :=
+  match remaining with
+  | O => []
+  | S remaining => 
+    match (deserialize bools) with
+    | None => None
+    | Some (a, bools) => Some (a :: tree_deserialize_elements remaining bools)
+    end
+  end.
+
+(*end code*)
 End TreeSerializer.
 
 
