@@ -27,11 +27,16 @@ Fixpoint list_deserialize_strange_match (bools : list bool) :  option (list A * 
   match bools with
   | false :: _ => Some ([], 1)
   | true :: bools =>
-    match bools with
-    | extract_bools (deserialize bools) ++ rest =>
-      match (list_deserialize rest) with
-      | None => None
-      | Some (tail, bools) => Some (n :: tail, bools)
+    match (deserialize bools) with
+    | None => None
+    | Some (head, bools) =>
+      match bools with
+      | extract_bools (list_deserialize bools) ++ rest =>
+        match (list_deserialize bools) with
+        | None => None
+        | Some (tail, bools) => Some (head :: tail, bools)
+        end
+      | _ => None
       end
     | _ => None
     end
