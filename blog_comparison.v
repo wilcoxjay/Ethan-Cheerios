@@ -95,7 +95,7 @@ exact {| serialize := nat_serialize;
 Defined.
 
 (**
-Since this post discusses higher order (JW:right terminology?) types, we need to see how composibility works.
+Since this post discusses higher order (JW:right terminology? I think it might be higher-kinded) types, we need to see how composibility works.
 Here, we show serialization for a simple type which requires composibility to implement, the pair.
 *)
 
@@ -288,6 +288,12 @@ Inductive tree: Type :=
 | node : A -> tree -> tree -> tree.
 (*end code*)
 
+Fixpoint tree_size (t : tree) : nat :=
+  match t with
+  | leaf => 1
+  | node _ l r => 1 + tree_size l + tree_size r
+  end.
+
 (**
 For the embedded serializer, the concept of a "path" is needed. A path is simply the list of
 directions taken from the root to reach some node. We'll use true to represent left and false to 
@@ -340,7 +346,7 @@ The shape is stored as a `tree unit`. This works because `unit` contains no info
 contains the information that `tree A` describes, which is the shape. Since we record this shape in a preorder
 traversal, the elements are also encoded in the same order, which makes it easy to marry the two together.
 
-To make the recursion easier, the same trick of encoding the length will be used. (TODO Is this nececary? It shouldn't be, but I can't find a way to write the shape deserializer without it)
+To make the recursion easier, the same trick of encoding the length will be used. (TODO Is this nececary? It shouldn't be, but I can't find a way to write the shape deserializer without it.)
 
 The structure is encoded as follows:
 
@@ -369,7 +375,7 @@ Definition tree_unit := tree.
 
 (* JW: What's the best way to do this? I can't put it in the section because it's assumed that tree = tree A*)
 End TreeSerializer.
-Fixpoint tree_desearialize_shape (remaining: nat) (bools : list bool) : option (tree unit * list bool) :=
+Fixpoint tree_desearialize_shape (bools : list bool) : option (tree unit * list bool) :=
   match bools with
   | false :: bools => Some (leaf unit, bools)
   | true :: bools => 
@@ -383,6 +389,7 @@ Fixpoint tree_desearialize_shape (remaining: nat) (bools : list bool) : option (
     end
   | _ => None
   end.
+
 Section TreeSerializer.
 
 Fixpoint tree_deserialize_elements (remaining: nat) (bools : list bool) : option (list A * list bool) :=
