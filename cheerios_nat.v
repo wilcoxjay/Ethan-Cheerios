@@ -124,11 +124,12 @@ Section ListSerializer.
 Variable A : Type.
 Variable serA : Serializer A.
 
-Fixpoint list_serialize (l : list nat) : list bool :=
+Fixpoint list_serialize (l : list A) : list bool :=
   match l with
   | [] => [false]
-  | h :: t => [true] ++ list_serialize t
+  | h :: t => [true] ++ serialize h ++ list_serialize t
   end.
+
 
 Fixpoint list_deserialize (bools : list bool) :  option (list A * nat) :=
   match bools with
