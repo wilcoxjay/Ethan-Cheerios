@@ -354,7 +354,6 @@ The structure is encoded as follows:
 
 And in code:
 *)
-
 (*begin code*)
 Fixpoint tree_serialize_shape (t : tree) : list bool :=
   match t with
@@ -376,35 +375,29 @@ Definition tree_unit := tree.
 (* JW: What's the best way to do this? I can't put it in the section because it's assumed that tree = tree A*)
 End TreeSerializer.
 
-Fixpoint tree_deserialize_shape_step (bools: list bool) (progress: list (list (tree unit))) : option (tree unit * list bool) :=
+Fixpoint tree_deserialize_shape (bools: list bool) (progress: list (list (tree unit))) : option (tree unit * list bool) :=
   match bools with
-  | [] => None
   | false :: bools => 
     match progress with
-    | [] => Some ([[leaf unit]])
-    | level :: progress => tree_deserialize_shape_step bools ((leaf unit) :: level) :: progress
+    | [] => Some (leaf unit, bools)
+    | level :: progress => tree_deserialize_shape bools ((leaf unit :: level) :: progress)
     end
-  | [true; true] :: bools => tree_deserialize_shape_step bools ([] :: progress)
-  | [true; false] :: bools =>
+  | true :: true :: bools => tree_deserialize_shape bools ([] :: progress)
+  | true :: false :: bools =>
     match progress with
     | [] => None (* End without a beginning *)
     | level :: [] => 
       match level with
-      | [l; r] => Some (node unit tt l r, bools)
+      | [r; l] => Some (node unit tt l r, bools)
       | _ => None
       end
     | level :: parent :: progress =>
       match level with
-      | [l; r] => tree_deserialize_shape_step bools (([node unit tt l r] :: parent) :: progress)
+      | [r; l] => tree_deserialize_shape bools ((node unit tt l r :: parent) :: progress)
       | _ => None
       end
     end
-  end.
-
-Definition tree_deserialize_shape (bools : list bool) : option (tree unit * list bool) :=
-  match tree_deserialize_shape_step bools [] with
-  | ([], bools) => None
-  | (h :: t, bools) => Some (h, bools) (* t should always be [] *)
+  | _ => None
   end.
 
 Fixpoint tree_deserialize_elements {A : Type} {serA: Serializer A} (shape : tree unit) (bools : list bool) : option (tree A * list bool) :=
@@ -426,7 +419,7 @@ Fixpoint tree_deserialize_elements {A : Type} {serA: Serializer A} (shape : tree
   end.
 
 Definition tree_deserialize {A: Type} {serA: Serializer A} (bools : list bool) : option (tree A * list bool) :=
-  match tree_deserialize_shape bools with
+  match tree_deserialize_shape bools [] with
   | None => None
   | Some (shape, bools) => tree_deserialize_elements shape bools
   end.
@@ -438,54 +431,64 @@ Fixpoint shape_of {A : Type} (t : tree A) : tree unit :=
   | node _ _ l r => node unit tt (shape_of l) (shape_of r)
   end.
 
-Eval compute in tree_deserialize (tree_serialize nat NatSerializer
-  (node nat 1 
-    (node nat 2 (node nat 3 (leaf nat) (node nat 4 (leaf nat) (leaf nat))) (leaf nat)) (leaf nat))) : option (tree nat * list bool).
-
-Eval compute in tree_deserialize (tree_serialize nat NatSerializer
- (node nat 2 (node nat 3 (leaf nat) (node nat 4 (leaf nat) (leaf nat))) (leaf nat))) : option (tree nat * list bool).
-
-Eval compute in tree_serialize_shape nat (node nat 0 (leaf nat) (leaf nat)).
-Eval compute in tree_deserialize_shape (tree_serialize_shape nat (node nat 0 (leaf nat) (leaf nat))).
-Eval compute in tree_deserialize_shape (tree_serialize nat NatSerializer (node nat 0 (leaf nat) (leaf nat))).
-Eval compute in tree_deserialize_shape (tree_serialize_shape nat (node nat 2 (node nat 3 (leaf nat) (node nat 4 (leaf nat) (leaf nat))) (leaf nat))).
-
-Eval compute in tree_deserialize (tree_serialize nat NatSerializer (node nat 0 (leaf nat) (leaf nat))) : option (tree nat * list bool).
-Eval compute in tree_serialize nat NatSerializer (node nat 0 (leaf nat) (leaf nat)).
-
-Eval compute in tree_deserialize (tree_serialize nat NatSerializer (leaf nat)) : option (tree nat * list bool).
-
-
-Lemma tree_shape_ser_deser_identity : forall {A : Type} (a : tree A) (bools: list bool) (progress: list (tree unit)),
-      (tree_deserialize_shape_step (tree_serialize_shape A a ++ bools) progress) = Some ((shape_of a) :: progress, bools).
+Lemma tree_shape_ser_deser_aux : forall (A : Type) (a: tree A) (bools: list bool) (level: list (tree unit)) (progress: list (list (tree unit))),
+      tree_deserialize_shape (tree_serialize_shape A a ++ bools) (level :: progress)
+        = tree_deserialize_shape (bools) ((shape_of a :: level) :: progress).
 Proof.
-  unfold tree_deserialize_shape.
-  induction a as [| a l IHL r IHR]; intros.
-  - destruct progress.
-    + trivial.
-    + destruct t.
-      * simpl.
+  induction a as [| a l IHl r IHr]; intros.
+  - reflexivity.
+  - unfold tree_deserialize_shape, tree_serialize_shape.
+    rewrite !app_ass.
+    simpl.
+    rewrite IHl.
+    rewrite IHr.
+    reflexivity.
+Qed.
 
-Lemma tree_shape_ser_deser_identity : forall {A : Type} (a : tree A) (bools: list bool) (progress: list (tree unit)), 
-      (tree_deserialize_shape_step (tree_serialize_shape A a ++ bools) progress) = Some (shape_of a :: progress, bools).
+Lemma tree_shape_ser_deser_identity : forall (A : Type) (a: tree A) (bools: list bool),
+      tree_deserialize_shape (tree_serialize_shape A a ++ bools) [] = Some (shape_of a, bools).
 Proof.
-  unfold tree_deserialize_shape.
-  induction a as [| a l IHL r IHR]; intros.
-  - simpl.
-  - unfold tree_serialize_shape.
-    rewrite app_ass.
+  induction a as [| a l IHl r IHr]; intros.
+  - trivial.
+  - unfold tree_deserialize_shape, tree_serialize_shape.
+    rewrite !app_ass.
+    fold tree_deserialize_shape.
+    fold (tree_serialize_shape A l).
+    fold (tree_serialize_shape A r).
+    simpl.
+    rewrite tree_shape_ser_deser_aux.
+    rewrite tree_shape_ser_deser_aux.
+    simpl.
+    reflexivity.
+Qed.
+
+Lemma tree_elements_ser_deser_identity : forall {A : Type} {serA: Serializer A} (a : tree A) (bools: list bool),
+      tree_deserialize_elements (shape_of a) (tree_serialize_data_preorder A serA a ++ bools) = Some (a, bools).
+Proof.
+  induction a as [| a l IHl r IHr]; intros.
+  - trivial.
+  - unfold tree_deserialize_elements, tree_serialize_data_preorder.
     simpl.
     rewrite app_ass.
-    rewrite IHL.
+    rewrite ser_deser_identity.
+    rewrite app_ass.
+    rewrite IHl.
+    rewrite IHr.
+    reflexivity.
+Qed.
+
 
 (* TODO generalize this to A *)
 Theorem tree_ser_deser_identity :
   ser_deser_spec_ (tree nat) (tree_serialize nat NatSerializer) (tree_deserialize).
 Proof.
   unfold ser_deser_spec_.
-  induction a as [|a l r]; intros.
-  - unfold tree_serialize, tree_deserialize.
-    rewrite app_ass.
+  unfold tree_serialize, tree_deserialize.
+  intros.
+  rewrite app_ass.
+  rewrite tree_shape_ser_deser_identity.
+  rewrite tree_elements_ser_deser_identity.
+  reflexivity.
 Qed.
 
 
