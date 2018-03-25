@@ -375,16 +375,19 @@ Definition tree_unit := tree.
 
 (* JW: What's the best way to do this? I can't put it in the section because it's assumed that tree = tree A*)
 End TreeSerializer.
+
+Fixpoint combine (new: tree unit) (progress: list (tree unit)) : list (tree unit) :=
+  match progress with
+  | leaf _ :: progress => node unit tt new (leaf unit) :: progress
+  | node _ _ l r :: progress => combine (node unit tt l new) progress
+  | [] => [new]
+  end.
+
 Fixpoint tree_deserialize_shape_step (bools: list bool) (progress: list (tree unit)) : option (list (tree unit) * list bool) :=
   match bools with
-  | [] => None
+  | [] => Some progress
   | true :: bools => tree_deserialize_shape_step bools ((leaf unit) :: progress)
-  | false :: bools => 
-    match progress with
-    | leaf _ :: progress => tree_deserialize_shape_step bools (node unit tt (leaf unit) (leaf unit) :: progress)
-    | node _ _ l r :: progress => tree_deserialize_shape_step bools (node unit tt l (leaf unit) :: progress)
-    | [] => Some ([leaf unit], bools)
-    end
+  | false :: bools => tree_deserialize_shape_step bools (combine (leaf unit) progress)
   end.
 
 Definition tree_deserialize_shape (bools : list bool) : option (tree unit * list bool) :=
@@ -433,6 +436,7 @@ Eval compute in tree_deserialize (tree_serialize nat NatSerializer
  (node nat 2 (node nat 3 (leaf nat) (node nat 4 (leaf nat) (leaf nat))) (leaf nat))) : option (tree nat * list bool).
 
 Eval compute in tree_serialize_shape nat (node nat 0 (leaf nat) (leaf nat)).
+Eval compute in tree_deserialize_shape (tree_serialize_shape nat (node nat 0 (leaf nat) (leaf nat))).
 
 Eval compute in tree_deserialize (tree_serialize nat NatSerializer
  (node nat 0 (leaf nat) (leaf nat))) : option (tree nat * list bool).
