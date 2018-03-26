@@ -34,6 +34,29 @@ Class Serializer (A : Type) : Type := {
 }.
 
 (*end code*)
+
+(* A trivial boolean serializer for use later *)
+Definition bool_serialize (b: bool) := [b].
+Definition bool_deserialize (bools: list bool) :=
+  match bools with
+  | b :: bools => Some (b, bools)
+  | [] => None
+  end.
+Theorem bool_ser_deser_identity:
+  ser_deser_spec_ bool bool_serialize bool_deserialize.
+Proof.
+  unfold ser_deser_spec_.
+  trivial.
+Qed.
+
+Instance BoolSerializer : Serializer bool.
+Proof.
+exact {| serialize := bool_serialize;
+         deserialize := bool_deserialize;
+         ser_deser_identity := bool_ser_deser_identity;
+       |}.
+Defined.
+
 (**
  The serialized form used here is a list of booleans for simplicity.
 [^](A linked list of booleans is not computationally efficient, and could be replaced with 
@@ -132,6 +155,14 @@ Proof.
   reflexivity.
 Qed.
 
+Instance PairSerializer : Serializer (A * B).
+Proof.
+exact {| serialize := pair_serialize;
+         deserialize := pair_deserialize;
+         ser_deser_identity := pair_ser_deser_identity;
+       |}.
+Defined.
+
 End PairSerializer.
 
 (** Notice that the information about when to stop deserialization of each element must be encoded
@@ -175,23 +206,26 @@ The encoding is laid out as follows:
 
 In code this looks like:
 *)
+Section ListSerializer.
+Variable A: Type.
+Variable serA: Serializer A.
 
 (*begin code*)
-Fixpoint list_serialize_elements (l : list nat) : list bool :=
+Fixpoint list_serialize_elements (l : list A) : list bool :=
   match l with
   | [] => []
-  | h :: t => nat_serialize h ++ list_serialize_elements t
+  | h :: t => serialize h ++ list_serialize_elements t
   end.
 
-Definition list_serialize (l : list nat) : list bool :=
+Definition list_serialize (l : list A) : list bool :=
   nat_serialize (length l) ++ list_serialize_elements l.
 
 
-Fixpoint list_deserialize_elements (size : nat) (bools : list bool) :  option (list nat * list bool) :=
+Fixpoint list_deserialize_elements (size : nat) (bools : list bool) :  option (list A * list bool) :=
   match size with
   | O => Some ([], bools)
   | S size => 
-    match (nat_deserialize bools) with
+    match (deserialize bools) with
     | None => None
     | Some (n, bools) =>
       match (list_deserialize_elements size bools) with
@@ -201,15 +235,15 @@ Fixpoint list_deserialize_elements (size : nat) (bools : list bool) :  option (l
     end
   end.
 
-Definition list_deserialize (bools : list bool) : option (list nat * list bool) :=
-  match (nat_deserialize bools) with
+Definition list_deserialize (bools : list bool) : option (list A * list bool) :=
+  match (deserialize bools) with
   | None => None
   | Some (size, bools) => list_deserialize_elements size bools
   end.
 (*end code*)
 
 Theorem list_ser_deser_identity : 
-  ser_deser_spec_ (list nat) list_serialize list_deserialize.
+  ser_deser_spec_ (list A) list_serialize list_deserialize.
 Proof.
   unfold ser_deser_spec_.
   intros.
@@ -220,10 +254,19 @@ Proof.
   - trivial.
   - simpl.
     rewrite app_ass.
-    rewrite nat_ser_deser_identity. (* Element ser/deser identity *)
+    rewrite ser_deser_identity.
     rewrite IHt.
     reflexivity.
 Qed.
+
+
+Instance ListSerializer : Serializer (list A).
+Proof.
+exact {| serialize := list_serialize;
+         deserialize := list_deserialize;
+         ser_deser_identity := list_ser_deser_identity;
+       |}.
+Defined.
 
 (**
 An alternitive to putting the structure up front is to embed it with the data. This appears as
@@ -240,10 +283,10 @@ Let's see what this looks like in code.
 
 *)
 
-Fixpoint list_serialize_em (l : list nat) : list bool :=
+Fixpoint list_serialize_em (l : list A) : list bool :=
   match l with
   | [] => [false]
-  | h :: t => [true] ++ nat_serialize h ++ list_serialize_em t
+  | h :: t => [true] ++ serialize h ++ list_serialize_em t
   end.
 
 (**
@@ -268,6 +311,7 @@ Fixpoint list_deserialize_em (bools : list bool) :  option (list nat * list bool
     end
   end.
 (*end code*)
+End ListSerializer.
 
 (* No theorem! You can't prove code that won't typecheck! *)
 
@@ -288,11 +332,6 @@ Inductive tree: Type :=
 | node : A -> tree -> tree -> tree.
 (*end code*)
 
-Fixpoint tree_size (t : tree) : nat :=
-  match t with
-  | leaf => 1
-  | node _ l r => 1 + tree_size l + tree_size r
-  end.
 
 (**
 For the embedded serializer, the concept of a "path" is needed. A path is simply the list of
@@ -324,6 +363,34 @@ Serialization is performed as follows:
 
 *)
 
+Fixpoint tree_size (t : tree) : nat :=
+  match t with
+  | leaf => 1
+  | node _ l r => 1 + tree_size l + tree_size r
+  end.
+
+Fixpoint tree_insert (into node: tree) (path: list bool): tree :=
+  match into with
+  | leaf => node
+  | stem a l r =>
+      match path with
+      | [] => node (* also not supported *)
+      | true :: path => stem a (tree_insert l node path) r
+      | false :: path => stem a l (tree_insert r node path)
+      end
+  end.
+
+Fixpoint tree_serialize_subtree (t: tree) (location: list bool): list bool :=
+  match t with
+    | leaf => []
+    | node a l r => (list_serialize bool BoolSerializer location) ++ (serialize a) (* TODO make the list_serialize term cleaner *)
+      ++ (tree_serialize_subtree l (true :: location))
+      ++ (tree_serialize_subtree r (false :: location))
+  end.
+
+Definition tree_serialize (t: tree) : list bool :=
+  (nat_serialize (tree_size t)) ++ (tree_serialize_subtree t []).
+
 (**
 Deserialization is more complicated. As elements are parsed, they are inserted into the existing structure/As elements are parsed their data and path are recorded and then inserted order.
 (JW: Does it make sense to deserialize as list bool -> list (path * A) -> tree inserts or skip the list step
@@ -334,7 +401,31 @@ of its parents no issues arise. This is the case with a preorder traversal, and 
 our needs.
 *)
 
-(* Code to be filled in later *)
+Definition tree_deserialize_node (root :tree) (bools: list bool) : option (tree * list bool) :=
+  match (list_deserialize bool BoolSerializer bools) with
+  | None => None
+  | Some (location, bools) =>
+    match (deserialize bools) with
+    | None => None
+    | Some (a, bools) => Some (tree_insert root (stem a leaf leaf) (rev location), bools)
+    end
+  end.
+
+Fixpoint tree_deserialize_impl (remaining : nat) (root : tree) (bools : list bool) : option (tree * list bool) :=
+  match remaining with
+  | S n =>
+    match tree_deserialize_node root bools with
+    | None => None
+    | Some (root, bools) => tree_deserialize_impl n root bools
+    end
+  | _ => Some (root, bools)
+  end.
+
+Definition tree_deserialize (bools: list bool) : option (tree * list bool) :=
+  match nat_deserialize bools with 
+  | Some (size, bools) => tree_deserialize_impl size leaf bools
+  | None => None
+  end.
 
 (**
 Alternatively, the structure may be recorded at the beginning and then filled in as the tree is parsed.
@@ -448,7 +539,7 @@ Qed.
 Lemma tree_shape_ser_deser_identity : forall (A : Type) (a: tree A) (bools: list bool),
       tree_deserialize_shape (tree_serialize_shape A a ++ bools) [] = Some (shape_of a, bools).
 Proof.
-  induction a as [| a l IHl r IHr]; intros.
+  destruct a as [| a l r]; intros.
   - trivial.
   - unfold tree_deserialize_shape, tree_serialize_shape.
     rewrite !app_ass.
