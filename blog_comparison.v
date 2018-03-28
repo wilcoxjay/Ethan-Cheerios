@@ -8,8 +8,18 @@ and its effects. First our formal notion of serialization will be introduced,
 and then we will compare two strategies of laying out the information encoded
 in a list and a binary tree.
 
-In addition, the `.v` for this post may be found [here]() if you would
-like to step through some of the proofs or see omitted details.
+In particular, the method which information is encoded will be examined. Information
+is anything which can be used to describe part of a data structure. For example, in a
+graph, the topology and element data are both information which contribute to the data
+contained within the whole graph. Information is often tied to a particular layer of
+abstraction as represented by a type. In this example, the topology is tied to a
+type `graph`, while the element data is tied to some element type `E`. The combination
+of the types in the expression `graph E` is tied to all information contained within the
+graph. The serialized encoding of this information
+
+Additionally, the `.v` for this post may be found [here]() if you would
+like to step through some of the proofs or see omitted details, or write a
+serializer of your own.
 
 ## Defining Serialization
 Our definition of Serialization includes three things: a serializer,
@@ -120,6 +130,7 @@ Defined.
 (**
 Since this post discusses higher order (JW:right terminology? I think it might be higher-kinded) types, we need to see how composibility works.
 Here, we show serialization for a simple type which requires composibility to implement, the pair.
+Composibility allows for container types which contain elements of arbitrary type.
 *)
 
 Section PairSerializer.
@@ -179,7 +190,8 @@ Fixpoint nat_serialize_broken (n : nat) : list bool :=
 (**
 Under this definition, it's unclear what desearialazing the `nat * nat` `[true, true true]` should
 result in. It could be `(0,3)`, `(1,2)`, `(2,1)` or `(3,0)`. The information about when to stop must be
-encoded in the stream itself in one form or another. Consider the serialized `nat * nat` `[true, false,
+encoded in the stream itself in one form or another rather than implicitly as the end of the stream.
+Consider the serialized `nat * nat` `[true, false,
 true, true, false]`. It is unambigiously `(1, 2)`. When deserializing it is known precisely when each `nat`
  finishes, and transitively when the pair finishes. This information about the structure of the encoded
 data is crucial to the well-formedness of a serializer/deserializer.
@@ -201,7 +213,6 @@ fill it in as we parse the elements. In the case of a list this structure is sim
 represented as a `nat`.
 
 The encoding is laid out as follows:
-
 [list_front.png]
 
 In code this looks like:
@@ -334,7 +345,7 @@ Inductive tree: Type :=
 
 
 (**
-For the embedded serializer, the concept of a "path" is needed. A path is simply the list of
+For the embedded tree serializer, the concept of a "path" is needed. A path is simply the list of
 directions taken from the root to reach some node. We'll use true to represent left and false to 
 represent right. Below is the path [true, false].
 
@@ -366,7 +377,7 @@ Serialization is performed as follows:
 (*begin code*)
 Fixpoint tree_size (t : tree) : nat :=
   match t with
-  | leaf => 1
+  | leaf => 0
   | node _ l r => 1 + tree_size l + tree_size r
   end.
 
@@ -426,6 +437,13 @@ Definition tree_deserialize (bools: list bool) : option (tree * list bool) :=
   end.
 (*end code*)
 
+(**
+Because of this concept of a path, which is a global address of any particular node, reasoning about a tree
+becomes much more difficult. In particular, we must now prove that every insertion is made on a leaf of the
+tree so it does not overwrite data or fall off the end.
+*)
+
+(*begin code*)
 Fixpoint leaf_insertable (into: tree) (path: list bool): Prop :=
   match into with
   | leaf => 
@@ -440,7 +458,7 @@ Fixpoint leaf_insertable (into: tree) (path: list bool): Prop :=
       | false :: path => (leaf_insertable r path)
       end
   end.
-
+(*end code*)
 
 Lemma tree_insert_at_leaf : forall root : tree, forall path : list bool,
   leaf_insertable root path ->
@@ -462,20 +480,111 @@ Proof.
         apply H.
 Qed.
 
-Lemma tree_deser_ser_impl : forall a root : tree, forall location : list bool, forall bs : list bool, forall n : nat,
-    leaf_insertable root (rev location) ->
-    tree_deserialize_impl (tree_size a + n) root (tree_serialize_subtree a location ++ bs) = 
-      tree_deserialize_impl n (tree_insert root a (rev location)) bs.
+Lemma tree_insert_into_leaf_l : forall root l r: tree, forall path: list bool, forall a: A, 
+  leaf_insertable root path -> 
+    tree_insert (tree_insert root (node a leaf r) path) l (path ++ [true]) =
+    tree_insert root (node a l r) path.
 Proof.
-induction a as [| a l IHL r IHR]; intros root location bs n InTree.
+  induction root as [| a l IHL r IHR]; intros.
+  - destruct path.
+    + trivial.
+    + simpl in H. inversion H.
+  - destruct path; simpl in H. 
+    + inversion H.
+    + destruct b;
+      simpl;
+      f_equal.
+      * apply IHL, H.
+      * apply IHR, H.
+Qed.
+
+Lemma tree_insert_into_leaf_r : forall root r l: tree, forall path: list bool, forall a: A, 
+  leaf_insertable root path -> 
+    tree_insert (tree_insert root (node a l leaf) path) r (path ++ [false]) =
+    tree_insert root (node a l r) path.
+Proof. (* Is there a way to reuse proof reasoning, like from above? *)
+  induction root as [| a l IHL r IHR]; intros.
+  - destruct path.
+    + trivial.
+    + simpl in H. inversion H.
+  - destruct path; simpl in H. 
+    + inversion H.
+    + destruct b;
+      simpl;
+      f_equal.
+      * apply IHL, H.
+      * apply IHR, H.
+Qed.
+
+Lemma tree_insert_into_empty : forall root l r : tree, forall path: list bool, forall a: A, 
+  leaf_insertable root path -> 
+    tree_insert (
+      tree_insert (tree_insert root (node a leaf leaf) path) l 
+        (path ++ [true])) r (path ++ [false]) =
+    tree_insert root (node a l r) path.
+Proof.
+  intros.
+  rewrite tree_insert_into_leaf_l.
+  rewrite tree_insert_into_leaf_r.
+  reflexivity.
+  apply H.
+  apply H.
+Qed.
+
+Lemma tree_insertable_after_r : forall (root l : tree) (a : A) (path : list bool),
+leaf_insertable root path ->
+  leaf_insertable (tree_insert root (node a l leaf) path) (path ++ [false]).
+Proof.
+  induction root as [| a l IHL r IHR]; intros.
+  - simpl.
+    destruct path.
+    + trivial.
+    + simpl in H. inversion H.
+  - destruct path.
+    + simpl in H. inversion H.
+    + simpl.
+      simpl in H.
+      destruct b.
+      * apply IHL.
+        apply H.
+      * apply IHR.
+        apply H.
+Qed.
+
+Lemma tree_insertable_after_l : forall (root r : tree) (a : A) (path : list bool),
+leaf_insertable root path ->
+  leaf_insertable (tree_insert root (node a leaf r) path) (path ++ [true]).
+Proof.
+  induction root as [| a l IHL r IHR]; intros.
+  - simpl.
+    destruct path.
+    + trivial.
+    + simpl in H. inversion H.
+  - destruct path.
+    + simpl in H. inversion H.
+    + simpl.
+      simpl in H.
+      destruct b.
+      * apply IHL.
+        apply H.
+      * apply IHR.
+        apply H.
+Qed.
+
+Lemma tree_deser_ser_impl : forall a root : tree, forall location : list bool, forall bools : list bool, forall n : nat,
+    leaf_insertable root (rev location) ->
+    tree_deserialize_impl (tree_size a + n) root (tree_serialize_subtree a location ++ bools) = 
+      tree_deserialize_impl n (tree_insert root a (rev location)) bools.
+Proof.
+induction a as [| a l IHL r IHR]; intros root location bools n InTree.
 - simpl.
   rewrite tree_insert_at_leaf.
   reflexivity.
   apply InTree.
 - cbn - [tree_insert].
   rewrite !app_ass.
-  rewrite list_deser_ser_identity.
-  rewrite deser_ser_identity.
+  rewrite list_ser_deser_identity.
+  rewrite ser_deser_identity.
   rewrite <- plus_assoc.
   rewrite IHL.
   rewrite IHR.
@@ -498,37 +607,36 @@ Proof.
   intros.
   unfold tree_deserialize, tree_serialize.
   rewrite app_ass.
-  rewrite nat_deser_ser_identity.
+  rewrite nat_ser_deser_identity.
   rewrite (plus_n_O (tree_size t)).
-  rewrite tree_deser_ser_impl.
-  simpl.
-  reflexivity.
-  simpl.
-  reflexivity.
+  now rewrite tree_deser_ser_impl.
 Qed.
 
 (**
-Because of this concept of a path, which is a global address of any particular node, reasoning about a tree becomes
-much more difficult.
-
 It's worth noting that this representation could be made more efficient by recording locations relative to the
-previous node instead of absolute ones.
+previous node instead of absolute ones. However, this fact does not change how hard it is to reason aboout the
+tree.
 *)
 
 (**
 Alternatively, the structure may be recorded at the beginning and then filled in as the tree is parsed.
-This technique requires serialization and deserialization to be a two step process, however (something better).
+We must now reason about a tree as both it's shape (`tree unit`) and it's elements
+(`list A`).
+This technique requires serialization and deserialization to be a two step process, which has the advantage
+of better mapping to the information stored in the tree (shape and element data) but also the disadvantage
+of being more complicated. 
 
-The shape is encoded with two symbols. One signifies a `node` which requires two complete trees, and the other
-signifies a leaf which is itself a tree. When no nodes need to be satisfied, then the tree shape is complete.
-The shape is stored as a `tree unit`. This works because `unit` contains no information, so `tree unit` only
-contains the information that `tree A` describes, which is the shape. Since we record this shape in a preorder
+The shape is encoded with three symbols:
+ * [true; true]: The beginning of a `node`
+ * [true; false]: The end of a node
+ * [false]: A leaf node
+
+Each `node` requieres exactly two subtrees between its start and end marker. The shape is stored as a `tree 
+unit`. This works because `unit` contains no information, so `tree unit` only contains the information that
+the `tree` portion of `tree A` describes, which is the shape. Since we record this shape in a preorder
 traversal, the elements are also encoded in the same order, which makes it easy to marry the two together.
 
-To make the recursion easier, the same trick of encoding the length will be used. (TODO Is this necessary? It shouldn't be, but I can't find a way to write the shape deserializer without it.)
-
-The structure is encoded as follows:
-
+A visual representation of this encoding:
 [tree_upfront.png]
 
 And in code:
@@ -550,7 +658,6 @@ Definition tree_serialize (t: tree) : list bool :=
   tree_serialize_shape t ++ tree_serialize_data_preorder t.
 
 Definition tree_unit := tree.
-
 (* JW: What's the best way to do this? I can't put it in the section because it's assumed that tree = tree A*)
 End TreeSerializer.
 
@@ -669,6 +776,11 @@ Proof.
   rewrite tree_elements_ser_deser_identity.
   reflexivity.
 Qed.
+
+(**
+Because of the more recursive nature of the encoding, reasoning is significantly easier. We can consider
+any portion of the shape in isolation from all others because there are no ties to any global state. 
+*)
 
 
 (**
