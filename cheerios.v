@@ -544,8 +544,6 @@ Section TreeSerializer.
     induction parent.
     - simpl. reflexivity.
     - intros. Abort.
-    
-Definition placeholder := true.
 
   Fixpoint skipped_branches (root : tree) (path : list bool) : list tree :=
     match root, path with
@@ -725,7 +723,7 @@ Definition placeholder := true.
         tree_deserialize_impl n (tree_insert root a (rev location)) bs.
   induction a as [| a l IHL r IHR]; intros root location bs n InTree.
   - simpl.
-    rewrite tree_insert_at_leaf. 
+    rewrite tree_insert_at_leaf.
     reflexivity.
     apply InTree.
   - cbn - [tree_insert].

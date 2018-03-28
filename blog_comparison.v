@@ -363,20 +363,21 @@ Serialization is performed as follows:
 
 *)
 
+(*begin code*)
 Fixpoint tree_size (t : tree) : nat :=
   match t with
   | leaf => 1
   | node _ l r => 1 + tree_size l + tree_size r
   end.
 
-Fixpoint tree_insert (into node: tree) (path: list bool): tree :=
+Fixpoint tree_insert (into t: tree) (path: list bool): tree :=
   match into with
-  | leaf => node
-  | stem a l r =>
+  | leaf => t
+  | node a l r =>
       match path with
-      | [] => node (* also not supported *)
-      | true :: path => stem a (tree_insert l node path) r
-      | false :: path => stem a l (tree_insert r node path)
+      | [] => t (* not supported *)
+      | true :: path => node a (tree_insert l t path) r
+      | false :: path => node a l (tree_insert r t path)
       end
   end.
 
@@ -390,35 +391,32 @@ Fixpoint tree_serialize_subtree (t: tree) (location: list bool): list bool :=
 
 Definition tree_serialize (t: tree) : list bool :=
   (nat_serialize (tree_size t)) ++ (tree_serialize_subtree t []).
+(*end code*)
 
 (**
 Deserialization is more complicated. As elements are parsed, they are inserted into the existing structure/As elements are parsed their data and path are recorded and then inserted order.
 (JW: Does it make sense to deserialize as list bool -> list (path * A) -> tree inserts or skip the list step
 and do list bool -> tree inserts? I think the first is easier to reason about and it matches up with the
 structure pretty well. On the other hand, the second method involves fewer moving pieces and is more direct.)
-The insertion function used is not particularly robust, however as long as any given node is preceded by all
-of its parents no issues arise. This is the case with a preorder traversal, and also with a BFS, so it meets
+The insertion function used is not particularly robust, however during deserialization as long as any given node is preceded by all
+of its parents no issues arise. This is the case with a preorder traversal, and also with other traversals including BFS, so it meets
 our needs.
 *)
 
-Definition tree_deserialize_node (root :tree) (bools: list bool) : option (tree * list bool) :=
-  match (list_deserialize bool BoolSerializer bools) with
-  | None => None
-  | Some (location, bools) =>
-    match (deserialize bools) with
-    | None => None
-    | Some (a, bools) => Some (tree_insert root (stem a leaf leaf) (rev location), bools)
-    end
-  end.
+(*begin code*)
 
 Fixpoint tree_deserialize_impl (remaining : nat) (root : tree) (bools : list bool) : option (tree * list bool) :=
   match remaining with
   | S n =>
-    match tree_deserialize_node root bools with
+    match (list_deserialize bool BoolSerializer bools) with
     | None => None
-    | Some (root, bools) => tree_deserialize_impl n root bools
+    | Some (location, bools) =>
+      match (deserialize bools) with
+      | None => None
+      | Some (a, bools) => tree_deserialize_impl n (tree_insert root (node a leaf leaf) (rev location)) bools
+      end
     end
-  | _ => Some (root, bools)
+  | O => Some (root, bools)
   end.
 
 Definition tree_deserialize (bools: list bool) : option (tree * list bool) :=
@@ -426,6 +424,96 @@ Definition tree_deserialize (bools: list bool) : option (tree * list bool) :=
   | Some (size, bools) => tree_deserialize_impl size leaf bools
   | None => None
   end.
+(*end code*)
+
+Fixpoint leaf_insertable (into: tree) (path: list bool): Prop :=
+  match into with
+  | leaf => 
+      match path with
+      | [] => True (* Only if the location and tree run out at the same time should we be able to insert *)
+      | _ => False
+      end
+  | node a l r =>
+      match path with
+      | [] => False
+      | true :: path => (leaf_insertable l path)
+      | false :: path => (leaf_insertable r path)
+      end
+  end.
+
+
+Lemma tree_insert_at_leaf : forall root : tree, forall path : list bool,
+  leaf_insertable root path ->
+    tree_insert root leaf path = root.
+Proof.
+  induction root as [| a l IHL r IHR]; intros.
+  - destruct path.
+    + trivial.
+    + simpl in H. inversion H.
+  - unfold tree_insert; fold tree_insert.
+    destruct path.
+    + simpl in H. inversion H.
+    + simpl in H.
+      destruct b;
+        f_equal.
+      * apply IHL.
+        apply H.
+      * apply IHR.
+        apply H.
+Qed.
+
+Lemma tree_deser_ser_impl : forall a root : tree, forall location : list bool, forall bs : list bool, forall n : nat,
+    leaf_insertable root (rev location) ->
+    tree_deserialize_impl (tree_size a + n) root (tree_serialize_subtree a location ++ bs) = 
+      tree_deserialize_impl n (tree_insert root a (rev location)) bs.
+Proof.
+induction a as [| a l IHL r IHR]; intros root location bs n InTree.
+- simpl.
+  rewrite tree_insert_at_leaf.
+  reflexivity.
+  apply InTree.
+- cbn - [tree_insert].
+  rewrite !app_ass.
+  rewrite list_deser_ser_identity.
+  rewrite deser_ser_identity.
+  rewrite <- plus_assoc.
+  rewrite IHL.
+  rewrite IHR.
+  f_equal.
+  rewrite tree_insert_into_empty.
+    reflexivity.
+  apply InTree.
+    rewrite tree_insert_into_leaf_l.
+    simpl.
+    apply tree_insertable_after_r.
+    apply InTree.
+    apply InTree.
+  apply tree_insertable_after_l.
+    apply InTree.
+Qed.
+
+Theorem tree_deser_ser_identity: forall t : tree, forall bools: list bool,
+  (tree_deserialize ((tree_serialize t) ++ bools)) = Some (t, bools).
+Proof.
+  intros.
+  unfold tree_deserialize, tree_serialize.
+  rewrite app_ass.
+  rewrite nat_deser_ser_identity.
+  rewrite (plus_n_O (tree_size t)).
+  rewrite tree_deser_ser_impl.
+  simpl.
+  reflexivity.
+  simpl.
+  reflexivity.
+Qed.
+
+(**
+Because of this concept of a path, which is a global address of any particular node, reasoning about a tree becomes
+much more difficult.
+
+It's worth noting that this representation could be made more efficient by recording locations relative to the
+previous node instead of absolute ones.
+*)
 
 (**
 Alternatively, the structure may be recorded at the beginning and then filled in as the tree is parsed.
@@ -437,7 +525,7 @@ The shape is stored as a `tree unit`. This works because `unit` contains no info
 contains the information that `tree A` describes, which is the shape. Since we record this shape in a preorder
 traversal, the elements are also encoded in the same order, which makes it easy to marry the two together.
 
-To make the recursion easier, the same trick of encoding the length will be used. (TODO Is this nececary? It shouldn't be, but I can't find a way to write the shape deserializer without it.)
+To make the recursion easier, the same trick of encoding the length will be used. (TODO Is this necessary? It shouldn't be, but I can't find a way to write the shape deserializer without it.)
 
 The structure is encoded as follows:
 
