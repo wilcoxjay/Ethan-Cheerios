@@ -346,7 +346,7 @@ Inductive tree: Type :=
 
 (**
 For the embedded tree serializer, the concept of a "path" is needed. A path is simply the list of
-directions taken from the root to reach some node. We'll use true to represent left and false to 
+directions taken from the root to reach some node. We'll use true to represent left and false to
 represent right. Below is the path [true, false].
 
 [path.png]
@@ -489,7 +489,7 @@ Proof.
   - destruct path.
     + trivial.
     + simpl in H. inversion H.
-  - destruct path; simpl in H. 
+  - destruct path; simpl in H.
     + inversion H.
     + destruct b;
       simpl;
@@ -507,7 +507,7 @@ Proof. (* Is there a way to reuse proof reasoning, like from above? *)
   - destruct path.
     + trivial.
     + simpl in H. inversion H.
-  - destruct path; simpl in H. 
+  - destruct path; simpl in H.
     + inversion H.
     + destruct b;
       simpl;
@@ -601,7 +601,7 @@ induction a as [| a l IHL r IHR]; intros root location bools n InTree.
     apply InTree.
 Qed.
 
-Theorem tree_deser_ser_identity: forall t : tree, forall bools: list bool,
+Theorem tree_ser_deser_identity_em: forall t : tree, forall bools: list bool,
   (tree_deserialize ((tree_serialize t) ++ bools)) = Some (t, bools).
 Proof.
   intros.
@@ -654,7 +654,7 @@ Fixpoint tree_serialize_data_preorder (t : tree) : list bool :=
   | node a l r => (serialize a) ++ (tree_serialize_data_preorder l) ++ (tree_serialize_data_preorder r)
   end.
 
-Definition tree_serialize (t: tree) : list bool :=
+Definition tree_serialize_uf (t: tree) : list bool :=
   tree_serialize_shape t ++ tree_serialize_data_preorder t.
 
 Definition tree_unit := tree.
@@ -704,7 +704,7 @@ Fixpoint tree_deserialize_elements {A : Type} {serA: Serializer A} (shape : tree
     end
   end.
 
-Definition tree_deserialize {A: Type} {serA: Serializer A} (bools : list bool) : option (tree A * list bool) :=
+Definition tree_deserialize_uf {A: Type} {serA: Serializer A} (bools : list bool) : option (tree A * list bool) :=
   match tree_deserialize_shape bools [] with
   | None => None
   | Some (shape, bools) => tree_deserialize_elements shape bools
@@ -765,11 +765,11 @@ Qed.
 
 
 (* TODO generalize this to A *)
-Theorem tree_ser_deser_identity :
-  ser_deser_spec_ (tree nat) (tree_serialize nat NatSerializer) (tree_deserialize).
+Theorem tree_ser_deser_identity_uf :
+  ser_deser_spec_ (tree nat) (tree_serialize_uf nat NatSerializer) (tree_deserialize_uf).
 Proof.
   unfold ser_deser_spec_.
-  unfold tree_serialize, tree_deserialize.
+  unfold tree_serialize_uf, tree_deserialize_uf.
   intros.
   rewrite app_ass.
   rewrite tree_shape_ser_deser_identity.
