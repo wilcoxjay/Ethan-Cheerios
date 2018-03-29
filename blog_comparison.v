@@ -128,7 +128,7 @@ exact {| serialize := nat_serialize;
 Defined.
 
 (**
-Since this post discusses higher order (JW:right terminology? I think it might be higher-kinded) types, we need to see how composibility works.
+Since this post discusses container types, we need to see how composibility works.
 Here, we show serialization for a simple type which requires composibility to implement, the pair.
 Composibility allows for container types which contain elements of arbitrary type.
 *)
@@ -405,13 +405,10 @@ Definition tree_serialize (t: tree) : list bool :=
 (*end code*)
 
 (**
-Deserialization is more complicated. As elements are parsed, they are inserted into the existing structure/As elements are parsed their data and path are recorded and then inserted order.
-(JW: Does it make sense to deserialize as list bool -> list (path * A) -> tree inserts or skip the list step
-and do list bool -> tree inserts? I think the first is easier to reason about and it matches up with the
-structure pretty well. On the other hand, the second method involves fewer moving pieces and is more direct.)
-The insertion function used is not particularly robust, however during deserialization as long as any given node is preceded by all
-of its parents no issues arise. This is the case with a preorder traversal, and also with other traversals including BFS, so it meets
-our needs.
+Deserialization is more complicated. As elements are parsed, they are inserted into the tree structure parsed already.
+The insertion function used is not particularly robust, however during deserialization as long as any given node is 
+preceded by all of its parents no issues arise. This is the case with a preorder traversal, and also with other
+traversals including BFS, so it meets our needs.
 *)
 
 (*begin code*)
@@ -613,9 +610,10 @@ Proof.
 Qed.
 
 (**
-It's worth noting that this representation could be made more efficient by recording locations relative to the
+[^](It's worth noting that this representation could be made more efficient by recording locations relative to the
 previous node instead of absolute ones. However, this fact does not change how hard it is to reason aboout the
-tree.
+tree. Recording relative locations would allow us to reason about subtrees instead of parts of some tree, but we
+still must reason about insertions)
 *)
 
 (**
@@ -782,6 +780,13 @@ Because of the more recursive nature of the encoding, reasoning is significantly
 any portion of the shape in isolation from all others because there are no ties to any global state. 
 *)
 
+(** Talk about how information dependencies can effect encoding order *)
+(* With cheerios style tree:
+Size, elements, shape
+vs
+shape, elements
+
+second one does not require size because it is known in the shape *)
 
 (**
 ## Conclusion
