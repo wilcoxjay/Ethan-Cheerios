@@ -1,4 +1,8 @@
 (**
+% Encoding Techniques in Verified Serializers
+% Ethan Shea and James Wilcox
+% March 28, 2018
+
 Serialization can be described as the process of mapping some input data
 into a linear arrangement. In practice, this linear arrangement is usually
 a list or stream of bytes.
@@ -29,20 +33,24 @@ a deserializer, and a proof of correctness.
 Require Import List Arith.
 Import ListNotations.
 
-(*begin code*)
 (* TODO: How do I use these in my actual definitions? (do I need to for ser/deser?) *)
-Definition serializer (A: Type) := A -> list bool. 
-Definition deserializer (A: Type) := list bool -> option (A * list bool).
-Definition ser_deser_spec_ (A: Type) (ser : serializer A) (deser : deserializer A) := 
-  forall a : A, forall bools: list bool, 
+
+(*begin code*)
+Definition serializer (A: Type) := A -> list bool.
+
+Definition deserializer (A: Type) :=
+  list bool -> option (A * list bool).
+
+Definition ser_deser_spec_ A (ser : serializer A) (deser : deserializer A) :=
+  forall a : A, forall bools: list bool,
       (deser (ser a ++ bools)) = Some (a, bools).
+
 Class Serializer (A : Type) : Type := {
     serialize : A -> list bool;
     deserialize : list bool -> option (A * list bool);
     ser_deser_identity : forall a : A, forall bools: list bool, 
       (deserialize (serialize a ++ bools)) = Some (a, bools);
 }.
-
 (*end code*)
 
 (* A trivial boolean serializer for use later *)
@@ -106,8 +114,7 @@ Fixpoint nat_deserialize (bools : list bool) : option (nat * list bool) :=
 Theorem nat_ser_deser_identity :
   ser_deser_spec_ nat nat_serialize nat_deserialize. 
 (* Writing Note: I like using this definition because it communicates how the spec is
-   defined between a particular ser/deser pair
- *)
+   defined between a particular ser/deser pair *)
 Proof.
 (*TODO Is there a way to unfold and rename? It's a shame to use a instead of n in the inductive step. *)
   unfold ser_deser_spec_.
@@ -195,7 +202,7 @@ Consider the serialized `nat * nat` `[true, false,
 true, true, false]`. It is unambigiously `(1, 2)`. When deserializing it is known precisely when each `nat`
  finishes, and transitively when the pair finishes. This information about the structure of the encoded
 data is crucial to the well-formedness of a serializer/deserializer.
- *)
+*)
 
 (**
 ## List Serialization
@@ -307,6 +314,7 @@ without using general recursion. An attempted definition is given below:
 (TODO: Might be a good idea to use more formal terminology here, I wasn't sure how to phrase it)
 *)
 (* TODO: How do I "Abort" a fixpoint? *)
+(*begin code*)
 Fixpoint list_deserialize_em (bools : list bool) :  option (list nat * list bool) :=
   match bools with
   | [] => None
@@ -797,7 +805,7 @@ defined format, the information contained in that structure may be deduced and f
 For example, a list needs to have a length, and a tree needs to have a shape. From there,
 the encoding of this information is flexible, although some encodings are easier to work with
 than others.
- *)
+*)
 
 (* Notes: *)
 (* Vocabulary choice: Embedded and up-front. Are there better words to describe this? *)
