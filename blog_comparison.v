@@ -320,10 +320,10 @@ Let's see what this looks like in code.
 *)
 
 (*begin code*)
-Fixpoint list_serialize_em (l : list A) : list bool :=
+Fixpoint list_serialize_inter (l : list A) : list bool :=
   match l with
   | [] => [false]
-  | h :: t => [true] ++ serialize h ++ list_serialize_em t
+  | h :: t => [true] ++ serialize h ++ list_serialize_inter t
   end.
 (*end code*)
 
@@ -337,7 +337,7 @@ without using general recursion. An attempted definition is given below:
 *)
 
 (*begin code*)
-Fail Fixpoint list_deserialize_em bools :=
+Fail Fixpoint list_deserialize_inter bools :=
   match bools with
   | [] => None
   | false :: bools => Some ([], bools)
@@ -429,16 +429,16 @@ Fixpoint tree_insert (into t: tree A) (path: list bool): tree A :=
       end
   end.
 
-Fixpoint tree_serialize_subtree (t: tree A) (location: list bool) :=
+Fixpoint tree_serialize_subtree_inter (t: tree A) (location: list bool) :=
   match t with
     | leaf => []
     | node a l r => serialize location ++ serialize a
-      ++ tree_serialize_subtree l (true :: location)
-      ++ tree_serialize_subtree r (false :: location)
+      ++ tree_serialize_subtree_inter l (true :: location)
+      ++ tree_serialize_subtree_inter r (false :: location)
   end.
 
-Definition tree_serialize (t: tree A) : list bool :=
-  nat_serialize (tree_size t) ++ tree_serialize_subtree t [].
+Definition tree_serialize_inter (t: tree A) : list bool :=
+  nat_serialize (tree_size t) ++ tree_serialize_subtree_inter t [].
 (*end code*)
 
 (**
@@ -451,7 +451,7 @@ traversals including BFS, so it meets our needs.
 *)
 
 (*begin code*)
-Fixpoint tree_deserialize_impl
+Fixpoint tree_deserialize_inter_impl
          (remaining : nat) (root : tree A) (bools : list bool)
          : option (tree A * list bool) :=
   match remaining with
@@ -462,7 +462,7 @@ Fixpoint tree_deserialize_impl
       match deserialize bools with
       | None => None
       | Some (a, bools) =>
-        tree_deserialize_impl
+        tree_deserialize_inter_impl
           n
           (tree_insert root (node a leaf leaf) (rev location))
           bools
@@ -471,9 +471,9 @@ Fixpoint tree_deserialize_impl
   | O => Some (root, bools)
   end.
 
-Definition tree_deserialize bools :=
+Definition tree_deserialize_inter bools :=
   match nat_deserialize bools with 
-  | Some (size, bools) => tree_deserialize_impl size leaf bools
+  | Some (size, bools) => tree_deserialize_inter_impl size leaf bools
   | None => None
   end.
 (*end code*)
@@ -618,8 +618,8 @@ Qed.
 
 Lemma tree_deser_ser_impl : forall a root : tree A, forall location : list bool, forall bools : list bool, forall n : nat,
     leaf_insertable root (rev location) ->
-    tree_deserialize_impl (tree_size a + n) root (tree_serialize_subtree a location ++ bools) = 
-      tree_deserialize_impl n (tree_insert root a (rev location)) bools.
+    tree_deserialize_inter_impl (tree_size a + n) root (tree_serialize_subtree_inter a location ++ bools) = 
+      tree_deserialize_inter_impl n (tree_insert root a (rev location)) bools.
 Proof.
 induction a as [| a l IHL r IHR]; intros root location bools n InTree.
 - simpl.
@@ -646,16 +646,26 @@ induction a as [| a l IHL r IHR]; intros root location bools n InTree.
     apply InTree.
 Qed.
 
-Theorem tree_ser_deser_identity_em: forall t : tree A, forall bools: list bool,
-  (tree_deserialize ((tree_serialize t) ++ bools)) = Some (t, bools).
+Theorem tree_ser_deser_inter_identity: 
+  ser_deser_spec_ (tree A) tree_serialize_inter tree_deserialize_inter.
 Proof.
-  intros.
-  unfold tree_deserialize, tree_serialize.
+  unfold ser_deser_spec_.
+  intros t bools.
+  unfold tree_deserialize_inter, tree_serialize_inter.
   rewrite app_ass.
   rewrite nat_ser_deser_identity.
   rewrite (plus_n_O (tree_size t)).
   now rewrite tree_deser_ser_impl.
 Qed.
+
+
+Instance TreeInterleavedSerializer : Serializer (tree A).
+Proof.
+exact {| serialize := tree_serialize_inter;
+         deserialize := tree_deserialize_inter;
+         ser_deser_identity := tree_ser_deser_inter_identity;
+       |}.
+Defined.
 
 (**
 
@@ -710,11 +720,8 @@ Fixpoint tree_serialize_data_preorder (t : tree A) : list bool :=
                   tree_serialize_data_preorder r
   end.
 
-Definition tree_serialize_uf (t: tree A) : list bool :=
+Definition tree_serialize_front (t: tree A) : list bool :=
   tree_serialize_shape t ++ tree_serialize_data_preorder t.
-
-Definition tree_unit := tree unit.
-(* JW: What's the best way to do this? I can't put it in the section because it's assumed that tree = tree A*)
 
 Fixpoint tree_deserialize_shape (bools: list bool) (progress: list (list (tree unit))) : option (tree unit * list bool) :=
   match bools with
@@ -741,17 +748,17 @@ Fixpoint tree_deserialize_shape (bools: list bool) (progress: list (list (tree u
   | _ => None
   end.
 
-Fixpoint tree_deserialize_elts  (shape : tree unit) (bools : list bool) : option (tree A * list bool) :=
+Fixpoint tree_deserialize_front_elts  (shape : tree unit) (bools : list bool) : option (tree A * list bool) :=
   match shape with
   | leaf => Some (leaf, bools)
   | node _ l r =>
     match deserialize bools with
     | None => None
     | Some (a, bools) =>
-      match tree_deserialize_elts l bools with
+      match tree_deserialize_front_elts l bools with
       | None => None
       | Some (l, bools) => 
-        match tree_deserialize_elts r bools with
+        match tree_deserialize_front_elts r bools with
         | None => None
         | Some (r, bools) => Some (node a l r, bools)
         end
@@ -759,10 +766,10 @@ Fixpoint tree_deserialize_elts  (shape : tree unit) (bools : list bool) : option
     end
   end.
 
-Definition tree_deserialize_uf (bools : list bool) : option (tree A * list bool) :=
+Definition tree_deserialize_front (bools : list bool) : option (tree A * list bool) :=
   match tree_deserialize_shape bools [] with
   | None => None
-  | Some (shape, bools) => tree_deserialize_elts shape bools
+  | Some (shape, bools) => tree_deserialize_front_elts shape bools
   end.
 (*end code*)
 
@@ -803,11 +810,11 @@ Proof.
 Qed.
 
 Lemma tree_elts_ser_deser_identity : forall (a : tree A) (bools: list bool),
-      tree_deserialize_elts (shape_of a) (tree_serialize_data_preorder a ++ bools) = Some (a, bools).
+      tree_deserialize_front_elts (shape_of a) (tree_serialize_data_preorder a ++ bools) = Some (a, bools).
 Proof.
   induction a as [| a l IHl r IHr]; intros.
   - trivial.
-  - unfold tree_deserialize_elts, tree_serialize_data_preorder.
+  - unfold tree_deserialize_front_elts, tree_serialize_data_preorder.
     simpl.
     rewrite app_ass.
     rewrite ser_deser_identity.
@@ -817,19 +824,25 @@ Proof.
     reflexivity.
 Qed.
 
-
-(* TODO generalize this to A *)
-Theorem tree_ser_deser_identity_uf :
-  ser_deser_spec_ (tree A) tree_serialize_uf tree_deserialize_uf.
+Theorem tree_ser_deser_front_identity :
+  ser_deser_spec_ (tree A) tree_serialize_front tree_deserialize_front.
 Proof.
   unfold ser_deser_spec_.
-  unfold tree_serialize_uf, tree_deserialize_uf.
+  unfold tree_serialize_front, tree_deserialize_front.
   intros.
   rewrite app_ass.
   rewrite tree_shape_ser_deser_identity.
   rewrite tree_elts_ser_deser_identity.
   reflexivity.
 Qed.
+
+Instance TreeUpFrontSerializer : Serializer (tree A).
+Proof.
+exact {| serialize := tree_serialize_front;
+         deserialize := tree_deserialize_front;
+         ser_deser_identity := tree_ser_deser_front_identity;
+       |}.
+Defined.
 
 (**
 
