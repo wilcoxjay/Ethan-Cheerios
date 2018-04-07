@@ -308,7 +308,7 @@ Defined.
 An alternitive to putting the structure up front is to embed it with the data. This appears as
 follows:
 
-[list_embedded.png]
+[list_interleaved.png]
 
 There are a couple of advantages to this which relate to when the information about the structure is
 known. This structure allows lists of unknown (potentially infinite) size to be serialized. It also
@@ -319,11 +319,13 @@ Let's see what this looks like in code.
 
 *)
 
+(*begin code*)
 Fixpoint list_serialize_em (l : list A) : list bool :=
   match l with
   | [] => [false]
   | h :: t => [true] ++ serialize h ++ list_serialize_em t
   end.
+(*end code*)
 
 (**
 
@@ -333,7 +335,7 @@ without using general recursion. An attempted definition is given below:
 (TODO: Might be a good idea to use more formal terminology here, I wasn't sure how to phrase it)
 
 *)
-(* TODO: How do I "Abort" a fixpoint? *)
+
 (*begin code*)
 Fail Fixpoint list_deserialize_em bools :=
   match bools with
@@ -351,8 +353,6 @@ Fail Fixpoint list_deserialize_em bools :=
   end.
 (*end code*)
 End ListSerializer.
-
-(* No theorem! You can't prove code that won't typecheck! *)
 
 (**
 
@@ -377,7 +377,7 @@ Arguments node {_} _ _ _.
 
 (**
 
-For the embedded tree serializer, the concept of a "path" is needed. A path is simply the list of
+For the interleaved shape tree serializer, the concept of a "path" is needed. A path is simply the list of
 directions taken from the root to reach some node. We'll use true to represent left and false to
 represent right. Below is the path [true, false].
 
@@ -395,13 +395,13 @@ breadcrumbs which were appended to the head of the list, after the recursion has
 Using the concept of a path, the position and data of any node can be serialized. When this is done for
 all nodes in the tree, all information captured by the original data structure has been encoded.
 
-Even though an embedded structure is impossible to deserialize without general recursion, using an
-embedded structure is still possible if there is just enough information up front to recurse on. The
+Even though an interleaved structure is impossible to deserialize without general recursion, using an
+interleaved structure is still possible if there is just enough information up front to recurse on. The
 number of nodes in the tree provides a nice metric.
 
-The encoding using an embedded structure looks like this:
+The encoding using an interleaved structure looks like this:
 
-[tree_embedded.png]
+[tree_interleaved.png]
 
 Serialization is performed as follows:
 
@@ -690,7 +690,7 @@ the `tree` portion of `tree A` describes, which is the shape. Since we record th
 traversal, the elements are also encoded in the same order, which makes it easy to marry the two together.
 
 A visual representation of this encoding:
-[tree_upfront.png]
+[tree_front.png]
 
 And in code:
 
