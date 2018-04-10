@@ -3,29 +3,29 @@
 % Ethan Shea and James Wilcox
 % March 28, 2018
 
-Serialization can be described as the process of mapping some input data
-into a linear arrangement. In practice, this linear arrangement is usually
-a list or stream of bytes.
+*)
 
-In this post, we will explore different strategies for performing this mapping
-and its effects. First our formal notion of serialization will be introduced,
-and then we will compare two strategies of laying out the information encoded
-in a list and a binary tree.
+(**
 
-In particular, the method which information is encoded will be examined. Information
-is anything which can be used to describe part of a data structure. For example, in a
-graph, the topology and element data are both information which contribute to the data
-contained within the whole graph. Information is often tied to a particular layer of
-abstraction as represented by a type. In this example, the topology is tied to a
-type `graph`, while the element data is tied to some element type `E`. The combination
-of the types in the expression `graph E` is tied to all information contained within the
-graph. The serialized encoding of this information
+Serialization converts in-memory data to an external representation, typically a
+list or stream of bytes, which is then ready to be stored on disk or sent over
+the network.
 
-Additionally, the `.v` for this post may be found [here]() if you would
-like to step through some of the proofs or see omitted details, or write a
-serializer of your own.
+This post describes Cheerios, a verified library for serialization in Coq.
+Cheerios uses typeclasses to make it easy to create new serializers by composing
+existing serializers, such that the correctness proofs also compose.  We first
+give an overview of the core definitions of Cheerios and show how to build
+simple serializers for booleans, natural numbers, and pairs.  Then, we describe
+two generic strategies for serializing recursive "container-like" types, such as
+lists and trees, and discuss the tradeoffs in proof effort between the
+strategies. A recurring theme is the challenge of expressing decoders via
+*structural recursion*.
+
+Additionally, this post is generated from a literate Coq [file](), which we
+encourage you to step through.
 
 ## Defining Serialization
+
 Our definition of Serialization includes three things: a serializer,
 a deserializer, and a proof of correctness.
 
@@ -42,7 +42,7 @@ Definition serializer (A: Type) := A -> list bool.
 Definition deserializer (A: Type) :=
   list bool -> option (A * list bool).
 
-Definition ser_deser_spec_ A
+Definition ser_deser_spec A
            (ser : serializer A)
            (deser : deserializer A) :=
   forall (a : A) (bools: list bool),
@@ -51,7 +51,7 @@ Definition ser_deser_spec_ A
 Class Serializer (A : Type) : Type := {
     serialize : A -> list bool;
     deserialize : list bool -> option (A * list bool);
-    ser_deser_identity : ser_deser_spec_ A serialize deserialize
+    ser_deser_identity : ser_deser_spec A serialize deserialize
 }.
 (*end code*)
 
@@ -63,9 +63,9 @@ Definition bool_deserialize (bools: list bool) :=
   | [] => None
   end.
 Theorem bool_ser_deser_identity:
-  ser_deser_spec_ bool bool_serialize bool_deserialize.
+  ser_deser_spec bool bool_serialize bool_deserialize.
 Proof.
-  unfold ser_deser_spec_.
+  unfold ser_deser_spec.
   trivial.
 Qed.
 
@@ -77,10 +77,27 @@ exact {| serialize := bool_serialize;
        |}.
 Defined.
 
+(*
+TODO: I think we should go a little slower here. Explain type of `serialize`.
+Perhaps a good running example would help, something like:
+
+Inductive foo := A | B | C.
+
+Then we can talk about the encoding, and the decoding, and maybe draw some more pictures.
+This will be good because it emphasizes that not all bitstrings are valid.
+
+Let's show the proof of this simple example as well.
+
+Then, when we get to the statement of ser_deser_identity, do we want to talk about
+why it is the way it is? If so, I think the go-to example is pairs. So maybe we
+do that next before natural numbers.
+
+*)
+
 (**
 
- The serialized form used here is a list of booleans for simplicity.
-[^efficient.] The `option` return type of `deserialize` allows
+The serialized form used here is a list of booleans for simplicity.
+[^efficient] The `option` return type of `deserialize` allows
 for failure in the case of malformed input. The `list bool` in the return type is the
 leftover data after deserialization. It provides composibility in a similarly to a
 state monad. Our identity theorem simply
@@ -89,7 +106,7 @@ the same output and consumes no extra information from the stream. Notably, it
 does not say anything about malformed streams or that multiple streams could
 deserialize to the same result.
 
-[efficient]: A linked list of booleans is not computationally efficient,
+[^efficient]: A linked list of booleans is not computationally efficient,
 and could be replaced with another more sensible structure such as a stream of bytes.
 
 To demonstrate this, we will build a simple (inefficient) serializer/deserializer
@@ -107,7 +124,7 @@ Fixpoint nat_serialize (n : nat) : list bool :=
 Fixpoint nat_deserialize bools : option (nat * list bool) :=
   match bools with
   | true :: bools => 
-    match (nat_deserialize bools) with
+    match nat_deserialize bools with
     | None => None
     | Some (n, bools) => Some (S n, bools)
     end
@@ -116,14 +133,15 @@ Fixpoint nat_deserialize bools : option (nat * list bool) :=
   end.
 
 Theorem nat_ser_deser_identity :
-  ser_deser_spec_ nat nat_serialize nat_deserialize. 
+  ser_deser_spec nat nat_serialize nat_deserialize. 
 (* Writing Note: I like using this definition because it communicates how the spec is
    defined between a particular ser/deser pair *)
 Proof.
 (*TODO Is there a way to unfold and rename? It's a shame to use a instead of n in the inductive step. *)
-  unfold ser_deser_spec_.
+(* No, not really. I made it `intros n`, which is slightly nicer. *)
+  unfold ser_deser_spec.
   intros n; induction n; intros.
-  - trivial.
+  - trivial. (* TODO: personally, I don't like `trivial`, because I don't have a good mental model for it. *)
   - simpl.
     rewrite IHn.
     reflexivity.
@@ -156,10 +174,10 @@ Definition pair_serialize (p : A * B) : list bool :=
   serialize (fst p) ++ serialize (snd p).
 
 Definition pair_deserialize bools : option ((A * B) * list bool) :=
-  match (deserialize bools) with
+  match deserialize bools with
   | Some (a, bools) => 
-    match (deserialize bools) with
-    | Some (b, bools) => Some((a, b), bools)
+    match deserialize bools with
+    | Some (b, bools) => Some ((a, b), bools)
     | None => None
     end
   | None => None
@@ -167,9 +185,9 @@ Definition pair_deserialize bools : option ((A * B) * list bool) :=
 (*end code*)
 
 Theorem pair_ser_deser_identity : 
-  ser_deser_spec_ (A * B) pair_serialize pair_deserialize.
+  ser_deser_spec (A * B) pair_serialize pair_deserialize.
 Proof.
-  unfold ser_deser_spec_.
+  unfold ser_deser_spec.
   intros.
   unfold pair_serialize.
   rewrite app_ass.
@@ -189,9 +207,17 @@ Defined.
 
 End PairSerializer.
 
+(*
+
+TODO: add some text describing the pair serializer/deserializer and its
+proof. Emphasize that the proof critically depends on the "compositional"
+version of the specification.
+
+*)
+
 (**
 
-Notice that the information about when to stop deserialization of each element must be encoded
+Notice that the information about when to *stop* deserialization of each element must be encoded
 into the stream itself. For example with the following `nat_serialize`, deserialization
 of `nat * nat` would become problematic.
 
@@ -207,13 +233,30 @@ Fixpoint nat_serialize_broken (n : nat) : list bool :=
 
 (**
 
-Under this definition, it's unclear what deserializing the `nat * nat` `[true, true true]` should
-result in. It could be `(0,3)`, `(1,2)`, `(2,1)` or `(3,0)`. The information about when to stop must be
-encoded in the stream itself in one form or another rather than implicitly as the end of the stream.
-Consider the serialized `nat * nat` `[true, false,
-true, true, false]`. It is unambigiously `(1, 2)`. When deserializing it is known precisely when each `nat`
- finishes, and transitively when the pair finishes. This information about the structure of the encoded
-data is crucial to the well-formedness of a serializer/deserializer.
+Under this definition, it's unclear what deserializing `[true, true true]` as a pair of `nat`s should
+return. It could be `(0,3)`, `(1,2)`, `(2,1)` or `(3,0)`. To remove this ambiguity, the information about "when to stop" must be
+encoded in the stream itself in one form or another rather than implicitly, using the end of the stream.
+Consider the serialized pair of `nat`s `[true, false, true, true, false]`, serialized using the not-broken serializer.
+It is unambigiously `(1, 2)`. When deserializing it is known precisely when each `nat`
+finishes (when `false` is reached) , and when the pair finishes (when the second `nat` finishes).
+This information about the structure of the encoded
+data plays a crucial part in showing `ser_deser_identity`.
+
+*)
+
+(*
+
+TODO: the discussion below about shapes and vectors is good, but too fast to
+really come across. Maybe we can move it later and expand it.
+
+*)
+
+(*
+
+TODO: I think we need to go slower here and talk about what's going on with the
+structural recursion. Maybe one thing to do would be to treat the "interleaved"
+strategy as the natural starting point, and then describe why it doesn't work.
+Then show the up-front strategy.
 
 *)
 
@@ -234,10 +277,9 @@ fill it in as we parse the elements. In the case of a list this structure is sim
 represented as a `nat`.
 
 The encoding is laid out as follows:
-[list_front.png]
+![](list_front.png)
 
 In code this looks like:
-
 
 *)
 Section ListSerializer.
@@ -254,16 +296,15 @@ Fixpoint list_serialize_elts (l : list A) : list bool :=
 Definition list_serialize (l : list A) : list bool :=
   nat_serialize (length l) ++ list_serialize_elts l.
 
-
 Fixpoint list_deserialize_elts (size : nat) (bools : list bool)
       : option (list A * list bool) :=
   match size with
   | O => Some ([], bools)
   | S size => 
-    match (deserialize bools) with
+    match deserialize bools with
     | None => None
     | Some (n, bools) =>
-      match (list_deserialize_elts size bools) with
+      match list_deserialize_elts size bools with
       | None => None
       | Some (tail, bools) => Some (n :: tail, bools)
       end
@@ -278,9 +319,9 @@ Definition list_deserialize bools :=
 (*end code*)
 
 Theorem list_ser_deser_identity : 
-  ser_deser_spec_ (list A) list_serialize list_deserialize.
+  ser_deser_spec (list A) list_serialize list_deserialize.
 Proof.
-  unfold ser_deser_spec_.
+  unfold ser_deser_spec.
   intros.
   unfold list_serialize, list_deserialize.
   rewrite app_ass.
@@ -308,7 +349,7 @@ Defined.
 An alternitive to putting the structure up front is to embed it with the data. This appears as
 follows:
 
-[list_interleaved.png]
+![](list_interleaved.png)
 
 There are a couple of advantages to this which relate to when the information about the structure is
 known. This structure allows lists of unknown (potentially infinite) size to be serialized. It also
@@ -333,6 +374,13 @@ Since information about when to stop deserializating is not known until the end,
 to recurse on. In this way, we conjecture that it's impossible to define this deserialization function
 without using general recursion. An attempted definition is given below:
 (TODO: Might be a good idea to use more formal terminology here, I wasn't sure how to phrase it)
+
+*)
+
+(*
+
+TODO: it might be good to find a way to make this succeed. Otherwise, the
+analogy with trees is a little weird.
 
 *)
 
@@ -381,7 +429,7 @@ For the interleaved shape tree serializer, the concept of a "path" is needed. A 
 directions taken from the root to reach some node. We'll use true to represent left and false to
 represent right. Below is the path [true, false].
 
-[path.png]
+![](path.png)
 
 The only important thing to know about paths is that when recursing into a tree the direction traveled
 must be recorded at the end of the list rather than at the start. If right was first in the list, then
@@ -401,7 +449,7 @@ number of nodes in the tree provides a nice metric.
 
 The encoding using an interleaved structure looks like this:
 
-[tree_interleaved.png]
+![](tree_interleaved.png)
 
 Serialization is performed as follows:
 
@@ -647,9 +695,9 @@ induction a as [| a l IHL r IHR]; intros root location bools n InTree.
 Qed.
 
 Theorem tree_ser_deser_inter_identity: 
-  ser_deser_spec_ (tree A) tree_serialize_inter tree_deserialize_inter.
+  ser_deser_spec (tree A) tree_serialize_inter tree_deserialize_inter.
 Proof.
-  unfold ser_deser_spec_.
+  unfold ser_deser_spec.
   intros t bools.
   unfold tree_deserialize_inter, tree_serialize_inter.
   rewrite app_ass.
@@ -671,7 +719,7 @@ Defined.
 
 TODO: use this footnote somewhere. [^tree_efficient]
 
-[tree_efficient]: It's worth noting that this representation could be
+[^tree_efficient]: It's worth noting that this representation could be
 made more efficient by recording locations relative to the previous
 node instead of absolute ones. However, this fact does not change how
 hard it is to reason aboout the tree. Recording relative locations
@@ -700,7 +748,8 @@ the `tree` portion of `tree A` describes, which is the shape. Since we record th
 traversal, the elements are also encoded in the same order, which makes it easy to marry the two together.
 
 A visual representation of this encoding:
-[tree_front.png]
+
+![](tree_front.png)
 
 And in code:
 
@@ -825,9 +874,9 @@ Proof.
 Qed.
 
 Theorem tree_ser_deser_front_identity :
-  ser_deser_spec_ (tree A) tree_serialize_front tree_deserialize_front.
+  ser_deser_spec (tree A) tree_serialize_front tree_deserialize_front.
 Proof.
-  unfold ser_deser_spec_.
+  unfold ser_deser_spec.
   unfold tree_serialize_front, tree_deserialize_front.
   intros.
   rewrite app_ass.

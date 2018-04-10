@@ -30,10 +30,9 @@
 <p class="author">Ethan Shea and James Wilcox</p>
 <p class="date">March 28, 2018</p>
 </header>
-<p>Serialization can be described as the process of mapping some input data into a linear arrangement. In practice, this linear arrangement is usually a list or stream of bytes.</p>
-<p>In this post, we will explore different strategies for performing this mapping and its effects. First our formal notion of serialization will be introduced, and then we will compare two strategies of laying out the information encoded in a list and a binary tree.</p>
-<p>In particular, the method which information is encoded will be examined. Information is anything which can be used to describe part of a data structure. For example, in a graph, the topology and element data are both information which contribute to the data contained within the whole graph. Information is often tied to a particular layer of abstraction as represented by a type. In this example, the topology is tied to a type <code>graph</code>, while the element data is tied to some element type <code>E</code>. The combination of the types in the expression <code>graph E</code> is tied to all information contained within the graph. The serialized encoding of this information</p>
-<p>Additionally, the <code>.v</code> for this post may be found <a href="">here</a> if you would like to step through some of the proofs or see omitted details, or write a serializer of your own.</p>
+<p>Serialization converts in-memory data to an external representation, typically a list or stream of bytes, which is then ready to be stored on disk or sent over the network.</p>
+<p>This post describes Cheerios, a verified library for serialization in Coq. Cheerios uses typeclasses to make it easy to create new serializers by composing existing serializers, such that the correctness proofs also compose. We first give an overview of the core definitions of Cheerios and show how to build simple serializers for booleans, natural numbers, and pairs. Then, we describe two generic strategies for serializing recursive “container-like” types, such as lists and trees, and discuss the tradeoffs in proof effort between the strategies. A recurring theme is the challenge of expressing decoders via <em>structural recursion</em>.</p>
+<p>Additionally, this post is generated from a literate Coq <a href="">file</a>, which we encourage you to step through.</p>
 <h2 id="defining-serialization">Defining Serialization</h2>
 <p>Our definition of Serialization includes three things: a serializer, a deserializer, and a proof of correctness.</p>
 <pre><code><span style='color:#a020f0'>Definition</span> <span style='color:#3b10ff'>serializer</span> (A: <span style='color:#228b22'>Type</span>) := A -&gt; list bool.
@@ -41,7 +40,7 @@
 <span style='color:#a020f0'>Definition</span> <span style='color:#3b10ff'>deserializer</span> (A: <span style='color:#228b22'>Type</span>) :=
   list bool -&gt; option (A * list bool).
 
-<span style='color:#a020f0'>Definition</span> <span style='color:#3b10ff'>ser_deser_spec_</span> A
+<span style='color:#a020f0'>Definition</span> <span style='color:#3b10ff'>ser_deser_spec</span> A
            (ser : serializer A)
            (deser : deserializer A) :=
   <span style='color:#228b22'>forall</span> (<span style='color:#a0522d'>a</span> : A) (bools: list bool),
@@ -50,11 +49,10 @@
 <span style='color:#a020f0'>Class</span> <span style='color:#3b10ff'>Serializer</span> (A : <span style='color:#228b22'>Type</span>) : <span style='color:#228b22'>Type</span> := {
     serialize : A -&gt; list bool;
     deserialize : list bool -&gt; option (A * list bool);
-    ser_deser_identity : ser_deser_spec_ A serialize deserialize
+    ser_deser_identity : ser_deser_spec A serialize deserialize
 }.
 </code></pre>
-<p>The serialized form used here is a list of booleans for simplicity. [^efficient.] The <code>option</code> return type of <code>deserialize</code> allows for failure in the case of malformed input. The <code>list bool</code> in the return type is the leftover data after deserialization. It provides composibility in a similarly to a state monad. Our identity theorem simply requires that for any given input, serialization and deserialization produces the same output and consumes no extra information from the stream. Notably, it does not say anything about malformed streams or that multiple streams could deserialize to the same result.</p>
-<p>and could be replaced with another more sensible structure such as a stream of bytes.</p>
+<p>The serialized form used here is a list of booleans for simplicity. <a href="#fn1" class="footnote-ref" id="fnref1"><sup>1</sup></a> The <code>option</code> return type of <code>deserialize</code> allows for failure in the case of malformed input. The <code>list bool</code> in the return type is the leftover data after deserialization. It provides composibility in a similarly to a state monad. Our identity theorem simply requires that for any given input, serialization and deserialization produces the same output and consumes no extra information from the stream. Notably, it does not say anything about malformed streams or that multiple streams could deserialize to the same result.</p>
 <p>To demonstrate this, we will build a simple (inefficient) serializer/deserializer for <code>nat</code>s. The correctness proofs tend to be straightforward and repetitive, but this first one is included here to show the structure.</p>
 <pre><code><span style='color:#a020f0'>Fixpoint</span> <span style='color:#3b10ff'>nat_serialize</span> (n : nat) : list bool :=
   <span style='color:#228b22'>match</span> n <span style='color:#228b22'>with</span>
@@ -65,7 +63,7 @@
 <span style='color:#a020f0'>Fixpoint</span> <span style='color:#3b10ff'>nat_deserialize</span> bools : option (nat * list bool) :=
   <span style='color:#228b22'>match</span> bools <span style='color:#228b22'>with</span>
   | true :: bools =&gt; 
-    <span style='color:#228b22'>match</span> (nat_deserialize bools) <span style='color:#228b22'>with</span>
+    <span style='color:#228b22'>match</span> nat_deserialize bools <span style='color:#228b22'>with</span>
     | None =&gt; None
     | Some (n, bools) =&gt; Some (S n, bools)
     <span style='color:#228b22'>end</span>
@@ -74,14 +72,15 @@
   <span style='color:#228b22'>end</span>.
 
 <span style='color:#a020f0'>Theorem</span> <span style='color:#3b10ff'>nat_ser_deser_identity</span> :
-  ser_deser_spec_ nat nat_serialize nat_deserialize. 
+  ser_deser_spec nat nat_serialize nat_deserialize. 
 (* Writing Note: I like <span style='color:#228b22'>using</span> this definition because it communicates how the spec is
    defined between a particular ser/deser pair *)
 <span style='color:#a020f0'>Proof</span>.
 (*TODO Is there a way to <span style='color:#00008b'>unfold</span> and rename? It's a shame to use a instead of n <span style='color:#228b22'>in</span> the inductive step. *)
-  <span style='color:#00008b'>unfold</span> ser_deser_spec_.
+(* No, not really. I made it `intros n`, which is slightly nicer. *)
+  <span style='color:#00008b'>unfold</span> ser_deser_spec.
   <span style='color:#00008b'>intros</span> n; <span style='color:#00008b'>induction</span> n; <span style='color:#00008b'>intros</span>.
-  - trivial.
+  - trivial. (* TODO: personally, I don't like `trivial`, because I don't have a good mental model for it. *)
   - <span style='color:#00008b'>simpl</span>.
     <span style='color:#00008b'>rewrite</span> IHn.
     <span style='color:#ff0000'>reflexivity</span>.
@@ -92,27 +91,27 @@
   serialize (fst p) ++ serialize (snd p).
 
 <span style='color:#a020f0'>Definition</span> <span style='color:#3b10ff'>pair_deserialize</span> bools : option ((A * B) * list bool) :=
-  <span style='color:#228b22'>match</span> (deserialize bools) <span style='color:#228b22'>with</span>
+  <span style='color:#228b22'>match</span> deserialize bools <span style='color:#228b22'>with</span>
   | Some (a, bools) =&gt; 
-    <span style='color:#228b22'>match</span> (deserialize bools) <span style='color:#228b22'>with</span>
-    | Some (b, bools) =&gt; Some((a, b), bools)
+    <span style='color:#228b22'>match</span> deserialize bools <span style='color:#228b22'>with</span>
+    | Some (b, bools) =&gt; Some ((a, b), bools)
     | None =&gt; None
     <span style='color:#228b22'>end</span>
   | None =&gt; None
   <span style='color:#228b22'>end</span>.
 </code></pre>
-<p>Notice that the information about when to stop deserialization of each element must be encoded into the stream itself. For example with the following <code>nat_serialize</code>, deserialization of <code>nat * nat</code> would become problematic.</p>
+<p>Notice that the information about when to <em>stop</em> deserialization of each element must be encoded into the stream itself. For example with the following <code>nat_serialize</code>, deserialization of <code>nat * nat</code> would become problematic.</p>
 <pre><code><span style='color:#a020f0'>Fixpoint</span> <span style='color:#3b10ff'>nat_serialize_broken</span> (n : nat) : list bool :=
   <span style='color:#228b22'>match</span> n <span style='color:#228b22'>with</span>
   | O =&gt; []
   | S n =&gt; [true] ++ (nat_serialize n)
   <span style='color:#228b22'>end</span>.
 </code></pre>
-<p>Under this definition, it’s unclear what deserializing the <code>nat * nat</code> <code>[true, true true]</code> should result in. It could be <code>(0,3)</code>, <code>(1,2)</code>, <code>(2,1)</code> or <code>(3,0)</code>. The information about when to stop must be encoded in the stream itself in one form or another rather than implicitly as the end of the stream. Consider the serialized <code>nat * nat</code> <code>[true, false, true, true, false]</code>. It is unambigiously <code>(1, 2)</code>. When deserializing it is known precisely when each <code>nat</code> finishes, and transitively when the pair finishes. This information about the structure of the encoded data is crucial to the well-formedness of a serializer/deserializer.</p>
+<p>Under this definition, it’s unclear what deserializing <code>[true, true true]</code> as a pair of <code>nat</code>s should return. It could be <code>(0,3)</code>, <code>(1,2)</code>, <code>(2,1)</code> or <code>(3,0)</code>. To remove this ambiguity, the information about “when to stop” must be encoded in the stream itself in one form or another rather than implicitly, using the end of the stream. Consider the serialized pair of <code>nat</code>s <code>[true, false, true, true, false]</code>, serialized using the not-broken serializer. It is unambigiously <code>(1, 2)</code>. When deserializing it is known precisely when each <code>nat</code> finishes (when <code>false</code> is reached) , and when the pair finishes (when the second <code>nat</code> finishes). This information about the structure of the encoded data plays a crucial part in showing <code>ser_deser_identity</code>.</p>
 <h2 id="list-serialization">List Serialization</h2>
 <p>As data structures become more sophisticated than a pair, they gain more information about their structure. For a list this information can be observed as its size, and for a binary tree this might look like its shape. A pair does not have this information because there are always two elements in a pair. In other words, a pair’s shape is always known in advance, and does not need to be encoded. Another interesting example in this category are vectors: if you know a vector’s type, you know the length and therefore the shape.</p>
 <p>When serialization is performed with the structure up front, the information about structure comes first in the stream. When deserializating, we can build the structure and then fill it in as we parse the elements. In the case of a list this structure is simply the length represented as a <code>nat</code>.</p>
-<p>The encoding is laid out as follows: [list_front.png]</p>
+<p>The encoding is laid out as follows: <img src="list_front.png" /></p>
 <p>In code this looks like:</p>
 <pre><code><span style='color:#a020f0'>Fixpoint</span> <span style='color:#3b10ff'>list_serialize_elts</span> (l : list A) : list bool :=
   <span style='color:#228b22'>match</span> l <span style='color:#228b22'>with</span>
@@ -123,16 +122,15 @@
 <span style='color:#a020f0'>Definition</span> <span style='color:#3b10ff'>list_serialize</span> (l : list A) : list bool :=
   nat_serialize (length l) ++ list_serialize_elts l.
 
-
 <span style='color:#a020f0'>Fixpoint</span> <span style='color:#3b10ff'>list_deserialize_elts</span> (size : nat) (bools : list bool)
       : option (list A * list bool) :=
   <span style='color:#228b22'>match</span> size <span style='color:#228b22'>with</span>
   | O =&gt; Some ([], bools)
   | S size =&gt; 
-    <span style='color:#228b22'>match</span> (deserialize bools) <span style='color:#228b22'>with</span>
+    <span style='color:#228b22'>match</span> deserialize bools <span style='color:#228b22'>with</span>
     | None =&gt; None
     | Some (n, bools) =&gt;
-      <span style='color:#228b22'>match</span> (list_deserialize_elts size bools) <span style='color:#228b22'>with</span>
+      <span style='color:#228b22'>match</span> list_deserialize_elts size bools <span style='color:#228b22'>with</span>
       | None =&gt; None
       | Some (tail, bools) =&gt; Some (n :: tail, bools)
       <span style='color:#228b22'>end</span>
@@ -146,11 +144,17 @@
   <span style='color:#228b22'>end</span>.
 </code></pre>
 <p>An alternitive to putting the structure up front is to embed it with the data. This appears as follows:</p>
-<p>[list_embedded.png]</p>
+<p><img src="list_interleaved.png" /></p>
 <p>There are a couple of advantages to this which relate to when the information about the structure is known. This structure allows lists of unknown (potentially infinite) size to be serialized. It also losens the requirement that a structure must be built first in deserialization. This isn’t a big deal for lists, but it can be helpful with more complicated structures.</p>
 <p>Let’s see what this looks like in code.</p>
+<pre><code><span style='color:#a020f0'>Fixpoint</span> <span style='color:#3b10ff'>list_serialize_inter</span> (l : list A) : list bool :=
+  <span style='color:#228b22'>match</span> l <span style='color:#228b22'>with</span>
+  | [] =&gt; [false]
+  | h :: t =&gt; [true] ++ serialize h ++ list_serialize_inter t
+  <span style='color:#228b22'>end</span>.
+</code></pre>
 <p>Since information about when to stop deserializating is not known until the end, there is no structure to recurse on. In this way, we conjecture that it’s impossible to define this deserialization function without using general recursion. An attempted definition is given below: (TODO: Might be a good idea to use more formal terminology here, I wasn’t sure how to phrase it)</p>
-<pre><code><span style='color:#a020f0'>Fail</span> <span style='color:#a020f0'>Fixpoint</span> <span style='color:#3b10ff'>list_deserialize_em</span> bools :=
+<pre><code><span style='color:#a020f0'>Fail</span> <span style='color:#a020f0'>Fixpoint</span> <span style='color:#3b10ff'>list_deserialize_inter</span> bools :=
   <span style='color:#228b22'>match</span> bools <span style='color:#228b22'>with</span>
   | [] =&gt; None
   | false :: bools =&gt; Some ([], bools)
@@ -171,21 +175,21 @@
 | leaf : tree
 | node : A -&gt; tree -&gt; tree -&gt; tree.
 </code></pre>
-<p>For the embedded tree serializer, the concept of a “path” is needed. A path is simply the list of directions taken from the root to reach some node. We’ll use true to represent left and false to represent right. Below is the path [true, false].</p>
-<p>[path.png]</p>
+<p>For the interleaved shape tree serializer, the concept of a “path” is needed. A path is simply the list of directions taken from the root to reach some node. We’ll use true to represent left and false to represent right. Below is the path [true, false].</p>
+<p><img src="path.png" /></p>
 <p>The only important thing to know about paths is that when recursing into a tree the direction traveled must be recorded at the end of the list rather than at the start. If right was first in the list, then it should remain first throughout. In our definitions, this concept is represented as reversing the breadcrumbs which were appended to the head of the list, after the recursion has finished.</p>
 <p>Using the concept of a path, the position and data of any node can be serialized. When this is done for all nodes in the tree, all information captured by the original data structure has been encoded.</p>
-<p>Even though an embedded structure is impossible to deserialize without general recursion, using an embedded structure is still possible if there is just enough information up front to recurse on. The number of nodes in the tree provides a nice metric.</p>
-<p>The encoding using an embedded structure looks like this:</p>
-<p>[tree_embedded.png]</p>
+<p>Even though an interleaved structure is impossible to deserialize without general recursion, using an interleaved structure is still possible if there is just enough information up front to recurse on. The number of nodes in the tree provides a nice metric.</p>
+<p>The encoding using an interleaved structure looks like this:</p>
+<p><img src="tree_interleaved.png" /></p>
 <p>Serialization is performed as follows:</p>
-<pre><code><span style='color:#a020f0'>Fixpoint</span> <span style='color:#3b10ff'>tree_size</span> (t : tree) : nat :=
+<pre><code><span style='color:#a020f0'>Fixpoint</span> <span style='color:#3b10ff'>tree_size</span> (t : tree A) : nat :=
   <span style='color:#228b22'>match</span> t <span style='color:#228b22'>with</span>
   | leaf =&gt; 0
   | node _ l r =&gt; 1 + tree_size l + tree_size r
   <span style='color:#228b22'>end</span>.
 
-<span style='color:#a020f0'>Fixpoint</span> <span style='color:#3b10ff'>tree_insert</span> (into t: tree) (path: list bool): tree :=
+<span style='color:#a020f0'>Fixpoint</span> <span style='color:#3b10ff'>tree_insert</span> (into t: tree A) (path: list bool): tree A :=
   <span style='color:#228b22'>match</span> into <span style='color:#228b22'>with</span>
   | leaf =&gt; t
   | node a l r =&gt;
@@ -196,21 +200,21 @@
       <span style='color:#228b22'>end</span>
   <span style='color:#228b22'>end</span>.
 
-<span style='color:#a020f0'>Fixpoint</span> <span style='color:#3b10ff'>tree_serialize_subtree</span> (t: tree) (location: list bool) :=
+<span style='color:#a020f0'>Fixpoint</span> <span style='color:#3b10ff'>tree_serialize_subtree_inter</span> (t: tree A) (location: list bool) :=
   <span style='color:#228b22'>match</span> t <span style='color:#228b22'>with</span>
     | leaf =&gt; []
     | node a l r =&gt; serialize location ++ serialize a
-      ++ tree_serialize_subtree l (true :: location)
-      ++ tree_serialize_subtree r (false :: location)
+      ++ tree_serialize_subtree_inter l (true :: location)
+      ++ tree_serialize_subtree_inter r (false :: location)
   <span style='color:#228b22'>end</span>.
 
-<span style='color:#a020f0'>Definition</span> <span style='color:#3b10ff'>tree_serialize</span> (t: tree) : list bool :=
-  nat_serialize (tree_size t) ++ tree_serialize_subtree t [].
+<span style='color:#a020f0'>Definition</span> <span style='color:#3b10ff'>tree_serialize_inter</span> (t: tree A) : list bool :=
+  nat_serialize (tree_size t) ++ tree_serialize_subtree_inter t [].
 </code></pre>
 <p>Deserialization is more complicated. As elements are parsed, they are inserted into the tree structure parsed already. The insertion function used is not particularly robust, however during deserialization as long as any given node is preceded by all of its parents no issues arise. This is the case with a preorder traversal, and also with other traversals including BFS, so it meets our needs.</p>
-<pre><code><span style='color:#a020f0'>Fixpoint</span> <span style='color:#3b10ff'>tree_deserialize_impl</span>
-         (remaining : nat) (root : tree) (bools : list bool)
-         : option (tree * list bool) :=
+<pre><code><span style='color:#a020f0'>Fixpoint</span> <span style='color:#3b10ff'>tree_deserialize_inter_impl</span>
+         (remaining : nat) (root : tree A) (bools : list bool)
+         : option (tree A * list bool) :=
   <span style='color:#228b22'>match</span> remaining <span style='color:#228b22'>with</span>
   | S n =&gt;
     <span style='color:#228b22'>match</span> deserialize bools <span style='color:#228b22'>with</span>
@@ -219,7 +223,7 @@
       <span style='color:#228b22'>match</span> deserialize bools <span style='color:#228b22'>with</span>
       | None =&gt; None
       | Some (a, bools) =&gt;
-        tree_deserialize_impl
+        tree_deserialize_inter_impl
           n
           (tree_insert root (node a leaf leaf) (rev location))
           bools
@@ -228,14 +232,14 @@
   | O =&gt; Some (root, bools)
   <span style='color:#228b22'>end</span>.
 
-<span style='color:#a020f0'>Definition</span> <span style='color:#3b10ff'>tree_deserialize</span> bools :=
+<span style='color:#a020f0'>Definition</span> <span style='color:#3b10ff'>tree_deserialize_inter</span> bools :=
   <span style='color:#228b22'>match</span> nat_deserialize bools <span style='color:#228b22'>with</span> 
-  | Some (size, bools) =&gt; tree_deserialize_impl size leaf bools
+  | Some (size, bools) =&gt; tree_deserialize_inter_impl size leaf bools
   | None =&gt; None
   <span style='color:#228b22'>end</span>.
 </code></pre>
 <p>Because of this concept of a path, which is a global address of any particular node, reasoning about a tree becomes much more difficult. In particular, we must now prove that every insertion is made on a leaf of the tree so it does not overwrite data or fall off the end.</p>
-<pre><code><span style='color:#a020f0'>Fixpoint</span> <span style='color:#3b10ff'>leaf_insertable</span> (into: tree) (path: list bool): <span style='color:#228b22'>Prop</span> :=
+<pre><code><span style='color:#a020f0'>Fixpoint</span> <span style='color:#3b10ff'>leaf_insertable</span> (into: tree A) (path: list bool): <span style='color:#228b22'>Prop</span> :=
   <span style='color:#228b22'>match</span> into <span style='color:#228b22'>with</span>
   | leaf =&gt; 
     (* Only <span style='color:#228b22'>if</span> the location and tree run out at the same time
@@ -252,40 +256,36 @@
       <span style='color:#228b22'>end</span>
   <span style='color:#228b22'>end</span>.
 </code></pre>
-<p>TODO: use this footnote somewhere. [^tree_efficient]</p>
-<p>made more efficient by recording locations relative to the previous node instead of absolute ones. However, this fact does not change how hard it is to reason aboout the tree. Recording relative locations would allow us to reason about subtrees instead of parts of some tree, but we still must reason about insertions.</p>
+<p>TODO: use this footnote somewhere. <a href="#fn2" class="footnote-ref" id="fnref2"><sup>2</sup></a></p>
 <p>Alternatively, the structure may be recorded at the beginning and then filled in as the tree is parsed. We must now reason about a tree as both it’s shape (<code>tree unit</code>) and it’s elements (<code>list A</code>). This technique requires serialization and deserialization to be a two step process, which has the advantage of better mapping to the information stored in the tree (shape and element data) but also the disadvantage of being more complicated.</p>
 <p>The shape is encoded with three symbols: * [true; true]: The beginning of a <code>node</code> * [true; false]: The end of a node * [false]: A leaf node</p>
 <p>Each <code>node</code> requieres exactly two subtrees between its start and end marker. The shape is stored as a <code>tree  unit</code>. This works because <code>unit</code> contains no information, so <code>tree unit</code> only contains the information that the <code>tree</code> portion of <code>tree A</code> describes, which is the shape. Since we record this shape in a preorder traversal, the elements are also encoded in the same order, which makes it easy to marry the two together.</p>
-<p>A visual representation of this encoding: [tree_upfront.png]</p>
+<p>A visual representation of this encoding:</p>
+<p><img src="tree_front.png" /></p>
 <p>And in code:</p>
-<pre><code><span style='color:#a020f0'>Fixpoint</span> <span style='color:#3b10ff'>tree_serialize_shape</span> (t : tree) : list bool :=
+<pre><code><span style='color:#a020f0'>Fixpoint</span> <span style='color:#3b10ff'>tree_serialize_shape</span> (t : tree A) : list bool :=
   <span style='color:#228b22'>match</span> t <span style='color:#228b22'>with</span>
   | leaf =&gt; [false]
   | node _ l r =&gt; [true; true] ++ tree_serialize_shape l ++
                   tree_serialize_shape r ++ [true; false]
   <span style='color:#228b22'>end</span>.
 
-<span style='color:#a020f0'>Fixpoint</span> <span style='color:#3b10ff'>tree_serialize_data_preorder</span> (t : tree) : list bool :=
+<span style='color:#a020f0'>Fixpoint</span> <span style='color:#3b10ff'>tree_serialize_data_preorder</span> (t : tree A) : list bool :=
   <span style='color:#228b22'>match</span> t <span style='color:#228b22'>with</span>
   | leaf =&gt; [] (* No data contained within leaf nodes *)
   | node a l r =&gt; serialize a ++ tree_serialize_data_preorder l ++
                   tree_serialize_data_preorder r
   <span style='color:#228b22'>end</span>.
 
-<span style='color:#a020f0'>Definition</span> <span style='color:#3b10ff'>tree_serialize_uf</span> (t: tree) : list bool :=
+<span style='color:#a020f0'>Definition</span> <span style='color:#3b10ff'>tree_serialize_front</span> (t: tree A) : list bool :=
   tree_serialize_shape t ++ tree_serialize_data_preorder t.
-
-<span style='color:#a020f0'>Definition</span> <span style='color:#3b10ff'>tree_unit</span> := tree.
-(* JW: What's the best way to do this? I can't put it <span style='color:#228b22'>in</span> the section because it's assumed that tree = tree A*)
-<span style='color:#a020f0'>End</span> <span style='color:#3b10ff'>TreeSerializer</span>.
 
 <span style='color:#a020f0'>Fixpoint</span> <span style='color:#3b10ff'>tree_deserialize_shape</span> (bools: list bool) (progress: list (list (tree unit))) : option (tree unit * list bool) :=
   <span style='color:#228b22'>match</span> bools <span style='color:#228b22'>with</span>
   | false :: bools =&gt; 
     <span style='color:#228b22'>match</span> progress <span style='color:#228b22'>with</span>
-    | [] =&gt; Some (leaf unit, bools)
-    | level :: progress =&gt; tree_deserialize_shape bools ((leaf unit :: level) :: progress)
+    | [] =&gt; Some (leaf, bools)
+    | level :: progress =&gt; tree_deserialize_shape bools ((leaf :: level) :: progress)
     <span style='color:#228b22'>end</span>
   | true :: true :: bools =&gt; tree_deserialize_shape bools ([] :: progress)
   | true :: false :: bools =&gt;
@@ -293,45 +293,52 @@
     | [] =&gt; None (* <span style='color:#a020f0'>End</span> <span style='color:#3b10ff'>without</span> a beginning *)
     | level :: [] =&gt; 
       <span style='color:#228b22'>match</span> level <span style='color:#228b22'>with</span>
-      | [r; l] =&gt; Some (node unit tt l r, bools)
+      | [r; l] =&gt; Some (node tt l r, bools)
       | _ =&gt; None
       <span style='color:#228b22'>end</span>
     | level :: parent :: progress =&gt;
       <span style='color:#228b22'>match</span> level <span style='color:#228b22'>with</span>
-      | [r; l] =&gt; tree_deserialize_shape bools ((node unit tt l r :: parent) :: progress)
+      | [r; l] =&gt; tree_deserialize_shape bools ((node tt l r :: parent) :: progress)
       | _ =&gt; None
       <span style='color:#228b22'>end</span>
     <span style='color:#228b22'>end</span>
   | _ =&gt; None
   <span style='color:#228b22'>end</span>.
 
-<span style='color:#a020f0'>Fixpoint</span> <span style='color:#3b10ff'>tree_deserialize_elts</span> {A : <span style='color:#228b22'>Type</span>} {serA: Serializer A} (shape : tree unit) (bools : list bool) : option (tree A * list bool) :=
+<span style='color:#a020f0'>Fixpoint</span> <span style='color:#3b10ff'>tree_deserialize_front_elts</span>  (shape : tree unit) (bools : list bool) : option (tree A * list bool) :=
   <span style='color:#228b22'>match</span> shape <span style='color:#228b22'>with</span>
-  | leaf _ =&gt; Some (leaf A, bools)
-  | node _ _ l r =&gt;
+  | leaf =&gt; Some (leaf, bools)
+  | node _ l r =&gt;
     <span style='color:#228b22'>match</span> deserialize bools <span style='color:#228b22'>with</span>
     | None =&gt; None
     | Some (a, bools) =&gt;
-      <span style='color:#228b22'>match</span> tree_deserialize_elts l bools <span style='color:#228b22'>with</span>
+      <span style='color:#228b22'>match</span> tree_deserialize_front_elts l bools <span style='color:#228b22'>with</span>
       | None =&gt; None
       | Some (l, bools) =&gt; 
-        <span style='color:#228b22'>match</span> tree_deserialize_elts r bools <span style='color:#228b22'>with</span>
+        <span style='color:#228b22'>match</span> tree_deserialize_front_elts r bools <span style='color:#228b22'>with</span>
         | None =&gt; None
-        | Some (r, bools) =&gt; Some (node A a l r, bools)
+        | Some (r, bools) =&gt; Some (node a l r, bools)
         <span style='color:#228b22'>end</span>
       <span style='color:#228b22'>end</span>
     <span style='color:#228b22'>end</span>
   <span style='color:#228b22'>end</span>.
 
-<span style='color:#a020f0'>Definition</span> <span style='color:#3b10ff'>tree_deserialize_uf</span> {A: <span style='color:#228b22'>Type</span>} {serA: Serializer A} (bools : list bool) : option (tree A * list bool) :=
+<span style='color:#a020f0'>Definition</span> <span style='color:#3b10ff'>tree_deserialize_front</span> (bools : list bool) : option (tree A * list bool) :=
   <span style='color:#228b22'>match</span> tree_deserialize_shape bools [] <span style='color:#228b22'>with</span>
   | None =&gt; None
-  | Some (shape, bools) =&gt; tree_deserialize_elts shape bools
+  | Some (shape, bools) =&gt; tree_deserialize_front_elts shape bools
   <span style='color:#228b22'>end</span>.
 </code></pre>
 <p>Because of the more recursive nature of the encoding, reasoning is significantly easier. We can consider any portion of the shape in isolation from all others because there are no ties to any global state.</p>
 <p>Talk about how information dependencies can effect encoding order</p>
 <h2 id="conclusion">Conclusion</h2>
 <p>Beyond practical necesity, serialization can be used as a forcing function to understand the information contained within data structures. By requiring a well defined format, the information contained in that structure may be deduced and formalized. For example, a list needs to have a length, and a tree needs to have a shape. From there, the encoding of this information is flexible, although some encodings are easier to work with than others.</p>
+<section class="footnotes">
+<hr />
+<ol>
+<li id="fn1"><p>A linked list of booleans is not computationally efficient, and could be replaced with another more sensible structure such as a stream of bytes.<a href="#fnref1" class="footnote-back">↩</a></p></li>
+<li id="fn2"><p>It’s worth noting that this representation could be made more efficient by recording locations relative to the previous node instead of absolute ones. However, this fact does not change how hard it is to reason aboout the tree. Recording relative locations would allow us to reason about subtrees instead of parts of some tree, but we still must reason about insertions.<a href="#fnref2" class="footnote-back">↩</a></p></li>
+</ol>
+</section>
 </body>
 </html>
