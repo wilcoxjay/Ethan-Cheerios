@@ -1060,8 +1060,11 @@ is known so deserializing additional elements is justified. The question of how 
 be reasoned about independantly of the elements themselves, therefore the shape of the tree can be encoded without
 regard to where the element data is located.
 
-
-Say something about speculative deserialization and why it can't be done for arb serializers?
+(TODO Say something about speculative deserialization and why it can't be done for arb serializers?)
+One might point out that it is possible to speculatively parse remaining elements of the bitstream and only stop
+when an invalid element is reached. This requires that we don't accidentily intrepret whatever came after in the
+bit stream as an element. This is true under the condition that an encoding for one type can never
+be an encoding for another type. In our model, serializers can choose arbitrary encodings so this is not possible.
 
 *)
 (* With cheerios style tree:
