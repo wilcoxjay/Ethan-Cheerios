@@ -579,7 +579,7 @@ breadcrumbs which were appended to the head of the list, after the recursion has
 (**
 
 Using the concept of a path, the position and data of any node can be serialized. When this is done for
-all nodes in the tree, all information captured by the original data structure has been encoded.
+all nodes in the tree, all information captured by the original data structure has been encoded.[^tree_efficient]
 
 Even though an interleaved structure is impossible to deserialize without general recursion, using an
 interleaved structure is still possible if there is just enough information up front to recurse on. The
@@ -855,11 +855,9 @@ Defined.
 
 (**
 
-TODO: use this footnote somewhere. [^tree_efficient]
-
 [^tree_efficient]: It's worth noting that this representation could be
 made more efficient by recording locations relative to the previous
-node instead of absolute ones. However, this fact does not change how
+node instead of absolute ones. However, this fact does not significantly change how
 hard it is to reason aboout the tree. Recording relative locations
 would allow us to reason about subtrees instead of parts of some tree,
 but we still must reason about insertions.
@@ -875,10 +873,10 @@ This technique requires serialization and deserialization to be a two step proce
 of better mapping to the information stored in the tree (shape and element data) but also the disadvantage
 of being more complicated. 
 
-The shape is encoded with three symbols:
- * [true; true]: The beginning of a `node`
- * [true; false]: The end of a node
- * [false]: A leaf node
+The shape is encoded with three symbols: (TODO make sure this renders as a list)
+- [true; true]: The beginning of a `node`
+- [true; false]: The end of a node
+- [false]: A leaf node
 
 Each `node` requieres exactly two subtrees between its start and end marker. The shape is stored as a `tree 
 unit`. This works because `unit` contains no information, so `tree unit` only contains the information that
@@ -1039,8 +1037,31 @@ any portion of the shape in isolation from all others because there are no ties 
 *)
 
 (**
-TODO
-Talk about how information dependencies can effect encoding order
+
+## Conclusion
+
+(**
+It's worth noting that possible encodings for a given type are restricted by information dependencies
+within that type. Imagine we encode a list as follows:
+
+![](list_size_end.png)
+
+TODO Make this reasoning more formal. Why we need to prove |x| > i is somewhat unclear
+Since the size of the list is at the end, rather than at the beginning information about how to deserialize
+the structure isn't known until its too late. Similarly, we couldn't put the size anywhere in the middle (say
+after the first element), because of the possibility of an empty list. Each element `x[i]` depends on the fact
+that `|x| > i`. Therefore, we must show `|x| > i` in our encoding before attempting to deserialize `x[i]`.
+
+This is why the interleaved list serializer is able to work. Right before element `x[i]` is deserialized, we prove
+that `|x| > i` with the continue bit.
+
+This is also why the tree serializers are able to encode the shape at the front or the end. In both cases, the size
+is known so deserializing additional elements is justified. The question of how to arrange these elements can
+be reasoned about independantly of the elements themselves, therefore the shape of the tree can be encoded without
+regard to where the element data is located.
+
+
+Say something about speculative deserialization and why it can't be done for arb serializers?
 
 *)
 (* With cheerios style tree:
@@ -1049,10 +1070,6 @@ vs
 shape, elements
 
 second one does not require size because it is known in the shape *)
-
-(**
-
-## Conclusion
 
 Beyond practical necesity, serialization can be used as a forcing function to
 understand the information contained within data structures. By requiring a well
