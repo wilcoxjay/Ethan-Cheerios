@@ -52,6 +52,76 @@
     ser_deser_identity : ser_deser_spec A serialize deserialize
 }.
 </code></pre>
+<p>In order to serialize something, we need to turn all of the information it carries into bits. Take the following type for example, representing olympic medals:</p>
+<pre><code><span style='color:#a020f0'>Inductive</span> <span style='color:#3b10ff'>medal</span> := Gold | Silver | Bronze.
+<span style='color:#a020f0'>Inductive</span> <span style='color:#3b10ff'>grade</span> := A | B | C | D | F.
+</code></pre>
+<p>We need to map each case to a symbol of bits and return that. There are many ways this could be done, each with different trade offs as we will explore later, but we just need to pick one.</p>
+<pre><code><span style='color:#a020f0'>Definition</span> <span style='color:#3b10ff'>medal_serialize</span> (m: medal) := 
+  <span style='color:#228b22'>match</span> m <span style='color:#228b22'>with</span>
+  | Gold =&gt; [true; true]
+  | Silver =&gt; [true; false]
+  | Bronze =&gt; [false]
+  <span style='color:#228b22'>end</span>.
+<span style='color:#a020f0'>Definition</span> <span style='color:#3b10ff'>grade_serialize</span> (g: grade) := 
+  <span style='color:#228b22'>match</span> g <span style='color:#228b22'>with</span>
+  | A =&gt; [false; false]
+  | B =&gt; [false; true]
+  | C =&gt; [true; false; false]
+  | D =&gt; [true; false; true]
+  | F =&gt; [true; true]
+  <span style='color:#228b22'>end</span>.
+</code></pre>
+<p>Perfect. Now we need to be able to reconstruct the value that was serialized. This gets a littly trickier, because not every sequence of booleans decodes into a <code>medal</code>. What should happen when we encounter <code>[false; true]</code>? In cheerios we handle this case by returning the <code>Option</code> constructor <code>None</code> to indicate an error.</p>
+<pre><code><span style='color:#a020f0'>Definition</span> <span style='color:#3b10ff'>medal_deserialize1</span> (bools: list bool) : option medal :=
+  <span style='color:#228b22'>match</span> bools <span style='color:#228b22'>with</span>
+  | [true; true] =&gt; Some Gold
+  | [true; false] =&gt; Some Silver
+  | [false] =&gt; Some Bronze
+  | _ =&gt; None
+  <span style='color:#228b22'>end</span>.
+</code></pre>
+<p>Now that we can deserialize one medal, let’s encode two.</p>
+<pre><code><span style='color:#a020f0'>Definition</span> <span style='color:#3b10ff'>medal_serialize2</span> (m1: medal) (m2: medal) :=
+  medal_serialize m1 ++ medal_serialize m2.
+
+<span style='color:#a020f0'>Fail</span> <span style='color:#a020f0'>Definition</span> <span style='color:#3b10ff'>medal_deserialize2</span> (bools: list bool) : medal * medal :=
+  (medal_deserialize1 bools, medal_deserialize1 hmmm).
+</code></pre>
+<p>Now we run into a problem with deserialization.</p>
+<p>When deserializing the first medal, we consume the entire list. We don’t know what to pass into the second call to <code>medal_deserialize1</code> because we don’t know how much of the list has been deserialized. Our definition of deserialize needs a way to communicate how much of the stream was used back to the caller. In cheerios, we represent this with the type <code>grade * list bool</code> where the grade and remaining portion of the stream are returned. This is wrapped in an option to allow the entire deserialization operation to fail. Failure happens at this level because once an error is encountered, it is impossible in general to resume serialization of the remaining content.</p>
+<pre><code><span style='color:#a020f0'>Definition</span> <span style='color:#3b10ff'>medal_deserialize</span> (bools: list bool) : option (medal * list bool) :=
+  <span style='color:#228b22'>match</span> bools <span style='color:#228b22'>with</span>
+  | true :: true :: bools =&gt; Some (Gold, bools)
+  | true :: false :: bools =&gt; Some (Silver, bools)
+  | false :: bools =&gt; Some (Bronze, bools)
+  | _ =&gt; None
+  <span style='color:#228b22'>end</span>.
+
+<span style='color:#a020f0'>Definition</span> <span style='color:#3b10ff'>medal_deserialize_both</span> (bools: list bool)
+      : option ((medal * medal) * list bool) :=
+  <span style='color:#228b22'>match</span> medal_deserialize bools <span style='color:#228b22'>with</span>
+  | None =&gt; None
+  | Some (m1, bools) =&gt;
+    <span style='color:#228b22'>match</span> medal_deserialize bools <span style='color:#228b22'>with</span>
+    | None =&gt; None
+    | Some (m2, bools) =&gt; Some ((m1, m2), bools)
+    <span style='color:#228b22'>end</span>
+  <span style='color:#228b22'>end</span>.
+</code></pre>
+<p>And now we will prove that all serializations of <code>medal</code> can be deserialized correctly. Note that when proving this fact, we only need to worry about encodings which our serializer produces. This eliminates our need to reason about the error cases that were nececary in the deserializer. In doing this, nothing is said about how malformed bitstrings are parsed, or that every deserialized value can be generated by exactly one bit string. These may be useful properties to prove, but cheerios does not handle deserialization from unknown and unverified sources.</p>
+<pre><code><span style='color:#a020f0'>Theorem</span> <span style='color:#3b10ff'>medal_ser_deser_identity</span> :
+  ser_deser_spec medal medal_serialize medal_deserialize.
+<span style='color:#a020f0'>Proof</span>.
+  <span style='color:#00008b'>unfold</span> ser_deser_spec.
+  <span style='color:#00008b'>unfold</span> medal_deserialize.
+  <span style='color:#00008b'>unfold</span> medal_serialize.
+  <span style='color:#00008b'>intros</span> m.
+  <span style='color:#00008b'>destruct</span> m; <span style='color:#ff0000'>reflexivity</span>.
+<span style='color:#a020f0'>Qed</span>.
+</code></pre>
+<p>The proof of <code>medal_serialize_both</code> and <code>medal_deserialize_both</code> is left as an excercise.</p>
+<p>Also note that in the description above, we only have to handle what is output by the specific serilazer in question. Therefore, the <code>ser_deser_spec</code> only holds for a serializer/deserializer pair, rather than a serializer and an arbitrary deserializer or vice versa.</p>
 <p>The serialized form used here is a list of booleans for simplicity. <a href="#fn1" class="footnote-ref" id="fnref1"><sup>1</sup></a> The <code>option</code> return type of <code>deserialize</code> allows for failure in the case of malformed input. The <code>list bool</code> in the return type is the leftover data after deserialization. It provides composibility in a similarly to a state monad. Our identity theorem simply requires that for any given input, serialization and deserialization produces the same output and consumes no extra information from the stream. Notably, it does not say anything about malformed streams or that multiple streams could deserialize to the same result.</p>
 <p>To demonstrate this, we will build a simple (inefficient) serializer/deserializer for <code>nat</code>s. The correctness proofs tend to be straightforward and repetitive, but this first one is included here to show the structure.</p>
 <pre><code><span style='color:#a020f0'>Fixpoint</span> <span style='color:#3b10ff'>nat_serialize</span> (n : nat) : list bool :=
@@ -76,11 +146,9 @@
 (* Writing Note: I like <span style='color:#228b22'>using</span> this definition because it communicates how the spec is
    defined between a particular ser/deser pair *)
 <span style='color:#a020f0'>Proof</span>.
-(*TODO Is there a way to <span style='color:#00008b'>unfold</span> and rename? It's a shame to use a instead of n <span style='color:#228b22'>in</span> the inductive step. *)
-(* No, not really. I made it `intros n`, which is slightly nicer. *)
   <span style='color:#00008b'>unfold</span> ser_deser_spec.
   <span style='color:#00008b'>intros</span> n; <span style='color:#00008b'>induction</span> n; <span style='color:#00008b'>intros</span>.
-  - trivial. (* TODO: personally, I don't like `trivial`, because I don't have a good mental model for it. *)
+  - <span style='color:#00008b'>simpl</span>. <span style='color:#ff0000'>reflexivity</span>. (* TODO: personally, I don't like `trivial`, because I don't have a good mental model for it. *)
   - <span style='color:#00008b'>simpl</span>.
     <span style='color:#00008b'>rewrite</span> IHn.
     <span style='color:#ff0000'>reflexivity</span>.
@@ -107,12 +175,12 @@
   | S n =&gt; [true] ++ (nat_serialize n)
   <span style='color:#228b22'>end</span>.
 </code></pre>
-<p>Under this definition, it’s unclear what deserializing <code>[true, true true]</code> as a pair of <code>nat</code>s should return. It could be <code>(0,3)</code>, <code>(1,2)</code>, <code>(2,1)</code> or <code>(3,0)</code>. To remove this ambiguity, the information about “when to stop” must be encoded in the stream itself in one form or another rather than implicitly, using the end of the stream. Consider the serialized pair of <code>nat</code>s <code>[true, false, true, true, false]</code>, serialized using the not-broken serializer. It is unambigiously <code>(1, 2)</code>. When deserializing it is known precisely when each <code>nat</code> finishes (when <code>false</code> is reached) , and when the pair finishes (when the second <code>nat</code> finishes). This information about the structure of the encoded data plays a crucial part in showing <code>ser_deser_identity</code>.</p>
-<h2 id="list-serialization">List Serialization</h2>
-<p>As data structures become more sophisticated than a pair, they gain more information about their structure. For a list this information can be observed as its size, and for a binary tree this might look like its shape. A pair does not have this information because there are always two elements in a pair. In other words, a pair’s shape is always known in advance, and does not need to be encoded. Another interesting example in this category are vectors: if you know a vector’s type, you know the length and therefore the shape.</p>
-<p>When serialization is performed with the structure up front, the information about structure comes first in the stream. When deserializating, we can build the structure and then fill it in as we parse the elements. In the case of a list this structure is simply the length represented as a <code>nat</code>.</p>
-<p>The encoding is laid out as follows: <img src="list_front.png" /></p>
-<p>In code this looks like:</p>
+<p>Under this definition, it’s unclear what deserializing <code>[true, true true]</code> as a pair of <code>nat</code>s should return. It could be <code>(0,3)</code>, <code>(1,2)</code>, <code>(2,1)</code> or <code>(3,0)</code>. To remove this ambiguity, the information about “when to stop” must be encoded in the stream itself in one form or another rather than implicitly, using the end of the stream as a token. Consider the serialized pair of <code>nat</code>s <code>[true, false, true, true, false]</code>, serialized using the not-broken serializer. It is unambigiously <code>(1, 2)</code>. When deserializing it is known precisely when each <code>nat</code> finishes (when <code>false</code> is reached) , and when the pair finishes (when the second <code>nat</code> finishes). This information about the structure of the encoded data plays a crucial part in showing <code>ser_deser_identity</code>.</p>
+<p>Collections are interesting because they must encode their own “shape” and then delegate encoding the element data to an element serializer. Take a list for example. As we discovered before, information about when to stop reading the bit stream must be encoded in the stream Take a serializer with the following format. This serializer is broken for the same reason as the broken <code>nat</code> serializer.</p>
+<p><img src="list_broken.png" /></p>
+<p>There are a few methods for solving this problem as we will explore later. (TODO Awkward. Maybe fix with rearrangement)</p>
+<p>Note that we don’t run into this problem with any collection of fixed size, like a pair or vector. It is clear when to stop deserializing a <code>Vec 5</code> because 5 elements have been deserialized. The information about the shape of the data in this case is encoded in the type, and since the type is known to the serializer and the deserializer, it does not need to be encoded.</p>
+<p>TODO: Put this at the front of tree Often, this information about shape needs to encode more information than just the collection size. For example, there are exactly two binary trees with size 2. Simply encoding the number 2 is not sufficient to recreate the structure, so additional information about the tree must also be encoded. We will examine two such methods.</p>
 <pre><code><span style='color:#a020f0'>Fixpoint</span> <span style='color:#3b10ff'>list_serialize_elts</span> (l : list A) : list bool :=
   <span style='color:#228b22'>match</span> l <span style='color:#228b22'>with</span>
   | [] =&gt; []
@@ -178,7 +246,7 @@
 <p>For the interleaved shape tree serializer, the concept of a “path” is needed. A path is simply the list of directions taken from the root to reach some node. We’ll use true to represent left and false to represent right. Below is the path [true, false].</p>
 <p><img src="path.png" /></p>
 <p>The only important thing to know about paths is that when recursing into a tree the direction traveled must be recorded at the end of the list rather than at the start. If right was first in the list, then it should remain first throughout. In our definitions, this concept is represented as reversing the breadcrumbs which were appended to the head of the list, after the recursion has finished.</p>
-<p>Using the concept of a path, the position and data of any node can be serialized. When this is done for all nodes in the tree, all information captured by the original data structure has been encoded.</p>
+<p>Using the concept of a path, the position and data of any node can be serialized. When this is done for all nodes in the tree, all information captured by the original data structure has been encoded.<a href="#fn2" class="footnote-ref" id="fnref2"><sup>2</sup></a></p>
 <p>Even though an interleaved structure is impossible to deserialize without general recursion, using an interleaved structure is still possible if there is just enough information up front to recurse on. The number of nodes in the tree provides a nice metric.</p>
 <p>The encoding using an interleaved structure looks like this:</p>
 <p><img src="tree_interleaved.png" /></p>
@@ -256,9 +324,13 @@
       <span style='color:#228b22'>end</span>
   <span style='color:#228b22'>end</span>.
 </code></pre>
-<p>TODO: use this footnote somewhere. <a href="#fn2" class="footnote-ref" id="fnref2"><sup>2</sup></a></p>
 <p>Alternatively, the structure may be recorded at the beginning and then filled in as the tree is parsed. We must now reason about a tree as both it’s shape (<code>tree unit</code>) and it’s elements (<code>list A</code>). This technique requires serialization and deserialization to be a two step process, which has the advantage of better mapping to the information stored in the tree (shape and element data) but also the disadvantage of being more complicated.</p>
-<p>The shape is encoded with three symbols: * [true; true]: The beginning of a <code>node</code> * [true; false]: The end of a node * [false]: A leaf node</p>
+<p>The shape is encoded with three symbols: (TODO make sure this renders as a list)</p>
+<ul>
+<li><code>[true; true]</code>: The beginning of a <code>node</code></li>
+<li><code>[true; false]</code>: The end of a node</li>
+<li><code>[false]</code>: A leaf node</li>
+</ul>
 <p>Each <code>node</code> requieres exactly two subtrees between its start and end marker. The shape is stored as a <code>tree  unit</code>. This works because <code>unit</code> contains no information, so <code>tree unit</code> only contains the information that the <code>tree</code> portion of <code>tree A</code> describes, which is the shape. Since we record this shape in a preorder traversal, the elements are also encoded in the same order, which makes it easy to marry the two together.</p>
 <p>A visual representation of this encoding:</p>
 <p><img src="tree_front.png" /></p>
@@ -290,7 +362,7 @@
   | true :: true :: bools =&gt; tree_deserialize_shape bools ([] :: progress)
   | true :: false :: bools =&gt;
     <span style='color:#228b22'>match</span> progress <span style='color:#228b22'>with</span>
-    | [] =&gt; None (* <span style='color:#a020f0'>End</span> <span style='color:#3b10ff'>without</span> a beginning *)
+    | [] =&gt; None (* <span style='color:#228b22'>end</span> without a beginning *)
     | level :: [] =&gt; 
       <span style='color:#228b22'>match</span> level <span style='color:#228b22'>with</span>
       | [r; l] =&gt; Some (node tt l r, bools)
@@ -330,14 +402,19 @@
   <span style='color:#228b22'>end</span>.
 </code></pre>
 <p>Because of the more recursive nature of the encoding, reasoning is significantly easier. We can consider any portion of the shape in isolation from all others because there are no ties to any global state.</p>
-<p>Talk about how information dependencies can effect encoding order</p>
 <h2 id="conclusion">Conclusion</h2>
+<p>It’s worth noting that possible encodings for a given type are restricted by information dependencies within that type. Imagine we encode a list as follows:</p>
+<p><img src="list_size_end.png" /></p>
+<p>TODO Make this reasoning more formal. Why we need to prove |x| &gt; i is somewhat unclear Since the size of the list is at the end, rather than at the beginning information about how to deserialize the structure isn’t known until its too late. Similarly, we couldn’t put the size anywhere in the middle (say after the first element), because of the possibility of an empty list. Each element <code>x[i]</code> depends on the fact that <code>|x| &gt; i</code>. Therefore, we must show <code>|x| &gt; i</code> in our encoding before attempting to deserialize <code>x[i]</code>.</p>
+<p>This is why the interleaved list serializer is able to work. Right before element <code>x[i]</code> is deserialized, we prove that <code>|x| &gt; i</code> with the continue bit.</p>
+<p>This is also why the tree serializers are able to encode the shape at the front or the end. In both cases, the size is known so deserializing additional elements is justified. The question of how to arrange these elements can be reasoned about independantly of the elements themselves, therefore the shape of the tree can be encoded without regard to where the element data is located.</p>
+<p>(TODO Say something about speculative deserialization and why it can’t be done for arb serializers?) One might point out that it is possible to speculatively parse remaining elements of the bitstream and only stop when an invalid element is reached. This requires that we don’t accidentily intrepret whatever came after in the bit stream as an element. This is true under the condition that an encoding for one type can never be an encoding for another type. In our model, serializers can choose arbitrary encodings so this is not possible.</p>
 <p>Beyond practical necesity, serialization can be used as a forcing function to understand the information contained within data structures. By requiring a well defined format, the information contained in that structure may be deduced and formalized. For example, a list needs to have a length, and a tree needs to have a shape. From there, the encoding of this information is flexible, although some encodings are easier to work with than others.</p>
 <section class="footnotes">
 <hr />
 <ol>
 <li id="fn1"><p>A linked list of booleans is not computationally efficient, and could be replaced with another more sensible structure such as a stream of bytes.<a href="#fnref1" class="footnote-back">↩</a></p></li>
-<li id="fn2"><p>It’s worth noting that this representation could be made more efficient by recording locations relative to the previous node instead of absolute ones. However, this fact does not change how hard it is to reason aboout the tree. Recording relative locations would allow us to reason about subtrees instead of parts of some tree, but we still must reason about insertions.<a href="#fnref2" class="footnote-back">↩</a></p></li>
+<li id="fn2"><p>It’s worth noting that this representation could be made more efficient by recording locations relative to the previous node instead of absolute ones. However, this fact does not significantly change how hard it is to reason aboout the tree. Recording relative locations would allow us to reason about subtrees instead of parts of some tree, but we still must reason about insertions.<a href="#fnref2" class="footnote-back">↩</a></p></li>
 </ol>
 </section>
 </body>
