@@ -352,7 +352,7 @@ Fixpoint nat_serialize_broken (n : nat) : list bool :=
 
 Under this definition, it's unclear what deserializing `[true, true true]` as a pair of `nat`s should
 return. It could be `(0,3)`, `(1,2)`, `(2,1)` or `(3,0)`. To remove this ambiguity, the information about "when to stop" must be
-encoded in the stream itself in one form or another rather than implicitly, using the end of the stream.
+encoded in the stream itself in one form or another rather than implicitly, using the end of the stream as a token.
 Consider the serialized pair of `nat`s `[true, false, true, true, false]`, serialized using the not-broken serializer.
 It is unambigiously `(1, 2)`. When deserializing it is known precisely when each `nat`
 finishes (when `false` is reached) , and when the pair finishes (when the second `nat` finishes).
@@ -366,6 +366,27 @@ data plays a crucial part in showing `ser_deser_identity`.
 TODO: the discussion below about shapes and vectors is good, but too fast to
 really come across. Maybe we can move it later and expand it.
 
+*)
+
+(**
+Collections are interesting because they must encode their own "shape" and then delegate encoding the element
+data to an element serializer. Take a list for example. As we discovered before, information about when to stop
+reading the bit stream must be encoded in the stream Take a serializer with the following format. This serializer
+is broken for the same reason as the broken `nat` serializer.
+
+![](list_broken.png)
+
+There are a few methods for solving this problem as we will explore later. (TODO Awkward. Maybe fix with rearrangement)
+
+Note that we don't run into this problem with any collection of fixed size, like a pair or vector. It is clear when
+to stop deserializing a `Vec 5` because 5 elements have been deserialized. The information about the shape of the
+data in this case is encoded in the type, and since the type is known to the serializer and the deserializer, it
+does not need to be encoded.
+
+TODO: Put this at the front of tree
+Often, this information about shape needs to encode more information than just the collection size. For example,
+there are exactly two binary trees with size 2. Simply encoding the number 2 is not sufficient to recreate the
+structure, so additional information about the tree must also be encoded. We will examine two such methods.
 *)
 
 (*
