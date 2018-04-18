@@ -53,7 +53,11 @@ Class Serializer (A : Type) : Type := {
 }.
 (*end code*)
 
-(* A trivial boolean serializer for use later *)
+(*
+
+A trivial boolean serializer for use later 
+
+*)
 Definition bool_serialize (b: bool) := [b].
 Definition bool_deserialize (bools: list bool) :=
   match bools with
@@ -168,6 +172,7 @@ And now we can define our medal pair deserializer.
 
 *)
 
+(*begin code*)
 Definition medal_deserialize_pair (bools: list bool)
       : option ((medal * medal) * list bool) :=
   match medal_deserialize bools with
@@ -230,7 +235,11 @@ Defined.
 
 End PairSerializer.
 
-(* TODO I don't like how this is bolted on at the end *)
+(*
+
+TODO I don't like how this is bolted on at the end
+
+*)
 
 (**
 
@@ -371,6 +380,10 @@ Let's see what this looks like in code.
 
 *)
 
+Section ListSerializer.
+Variable A: Type.
+Variable serA: Serializer A.
+
 (*begin code*)
 Fixpoint list_serialize_inter (l : list A) : list bool :=
   match l with
@@ -412,9 +425,6 @@ move it to the front of the list's encoding in the form of a size. Now we can re
 elements remaining.
 
 *)
-Section ListSerializer.
-Variable A: Type.
-Variable serA: Serializer A.
 
 (*begin code*)
 Fixpoint list_serialize_elts (l : list A) : list bool :=
