@@ -265,8 +265,8 @@ serializer and an arbitrary deserializer or vice versa. In general, the correctn
 
 (**
 
-Now, we will build a simple (inefficient[^efficient]) serializer/deserializer for `nat`s. The encoding
-is essentialy the unary representation of the natural number.
+Now, we will build a simple (inefficient[^efficient]) serializer/deserializer for a more useful datatype, `nat`s.
+The encoding is essentialy the unary representation of the natural number.
 
 [^efficient]: A linked list of booleans is not computationally efficient,
 and could be replaced with another more sensible structure such as a stream of bytes.
@@ -339,48 +339,81 @@ data plays a crucial part in showing `ser_deser_identity`.
 
 *)
 
-(*
-
-TODO: the discussion below about shapes and vectors is good, but too fast to
-really come across. Let's move it to after we discuss lists.
-
-*)
-
 (**
 
-Collections are interesting because they must encode their own "shape" and then delegate encoding the element
-data to an element serializer. Take a list for example. As we discovered before, information about when to stop
-reading the bit stream must be encoded in the stream Take a serializer with the following format. This serializer
-is broken for the same reason as the broken `nat` serializer.
+## List Serialization
+
+When serializing lists (or any variable sized collection) we need to make sure to include some information
+about the structure in the serialized stream. Imagine we did not do this, and we serialized a pair of lists
+into the byte stream. We would get an encoding which looks like the figure below. As you can see, it's 
+impossible to tell where one list stops and the next begins.
 
 ![](list_broken.png)
 
-There are a few methods for solving this problem as we will explore later. (TODO Awkward. Maybe fix with rearrangement)
+This serializer is broken for the same reason as the broken `nat` serializer, the information in a serialized
+object must be entirely contained within the bitstream. Note that we don't run into this problem with any
+collection of fixed size, like a pair or vector. It is clear when to stop deserializing a `Vec 5` because 5
+elements have been deserialized. The information about the shape of the data in this case is encoded in the
+type, and since the type is known to the serializer and the deserializer, it does not need to be encoded.
 
-Note that we don't run into this problem with any collection of fixed size, like a pair or vector. It is clear when
-to stop deserializing a `Vec 5` because 5 elements have been deserialized. The information about the shape of the
-data in this case is encoded in the type, and since the type is known to the serializer and the deserializer, it
-does not need to be encoded.
+Lets start with solving this problem by including a "continue" bit before every element. If it is true an element
+follows, and it if it is false, the end of the list has been reached. This appears as follows:
 
-TODO: Put this at the front of tree
-Often, this information about shape needs to encode more information than just the collection size. For example,
-there are exactly two binary trees with size 2. Simply encoding the number 2 is not sufficient to recreate the
-structure, so additional information about the tree must also be encoded. We will examine two such methods.
+![](list_interleaved.png)
 
-*)
+TODO: Keep this?
+There are a couple of advantages to this which relate to when the information about the structure is
+known. This structure allows lists of unknown (potentially infinite) size to be serialized. It also
+losens the requirement that a structure must be built first in deserialization. This isn't a big deal
+for lists, but it can be helpful with more complicated structures.
 
-(*
-
-TODO: I think we need to go slower here and talk about what's going on with the
-structural recursion. Maybe one thing to do would be to treat the "interleaved"
-strategy as the natural starting point, and then describe why it doesn't work.
-Then show the up-front strategy.
+Let's see what this looks like in code.
 
 *)
 
-(*
+(*begin code*)
+Fixpoint list_serialize_inter (l : list A) : list bool :=
+  match l with
+  | [] => [false]
+  | h :: t => [true] ++ serialize h ++ list_serialize_inter t
+  end.
+(*end code*)
 
-TODO: new outline for this section.  *)
+(**
+
+TODO rephrase
+Since information about when to stop deserializating an element is not known until the end, there is no structure
+to recurse on. In this way, we conjecture that it's impossible to define this deserialization function
+without using general recursion. An attempted definition is given below:
+
+*)
+
+(*begin code*)
+Fail Fixpoint list_deserialize_inter bools :=
+  match bools with
+  | [] => None
+  | false :: bools => Some ([], bools)
+  | true :: bools =>
+    match nat_deserialize bools with
+    | None => None
+    | Some (n, bools) =>
+      match list_deserialize_em bools with
+      | None => None
+      | Some (tail, bools) => Some (n :: tail, bools)
+      end
+    end
+  end.
+(*end code*)
+
+(**
+
+To solve this recursion problem, we can take the same information encoded in the continuation bits and
+move it to the front of the list's encoding in the form of a size. Now we can recurse on the number of
+elements remaining.
+
+*)
+Section ListSerializer.
+Variable A: Type.
 Variable serA: Serializer A.
 
 (*begin code*)
@@ -441,62 +474,6 @@ exact {| serialize := list_serialize;
        |}.
 Defined.
 
-(**
-
-An alternitive to putting the structure up front is to embed it with the data. This appears as
-follows:
-
-![](list_interleaved.png)
-
-There are a couple of advantages to this which relate to when the information about the structure is
-known. This structure allows lists of unknown (potentially infinite) size to be serialized. It also
-losens the requirement that a structure must be built first in deserialization. This isn't a big deal
-for lists, but it can be helpful with more complicated structures.
-
-Let's see what this looks like in code.
-
-*)
-
-(*begin code*)
-Fixpoint list_serialize_inter (l : list A) : list bool :=
-  match l with
-  | [] => [false]
-  | h :: t => [true] ++ serialize h ++ list_serialize_inter t
-  end.
-(*end code*)
-
-(**
-
-Since information about when to stop deserializating is not known until the end, there is no structure
-to recurse on. In this way, we conjecture that it's impossible to define this deserialization function
-without using general recursion. An attempted definition is given below:
-(TODO: Might be a good idea to use more formal terminology here, I wasn't sure how to phrase it)
-
-*)
-
-(*
-
-TODO: it might be good to find a way to make this succeed. Otherwise, the
-analogy with trees is a little weird.
-
-*)
-
-(*begin code*)
-Fail Fixpoint list_deserialize_inter bools :=
-  match bools with
-  | [] => None
-  | false :: bools => Some ([], bools)
-  | true :: bools =>
-    match nat_deserialize bools with
-    | None => None
-    | Some (n, bools) =>
-      match list_deserialize_em bools with
-      | None => None
-      | Some (tail, bools) => Some (n :: tail, bools)
-      end
-    end
-  end.
-(*end code*)
 End ListSerializer.
 
 (**
@@ -1019,24 +996,10 @@ is known so deserializing additional elements is justified. The question of how 
 be reasoned about independantly of the elements themselves, therefore the shape of the tree can be encoded without
 regard to where the element data is located.
 
-(TODO Say something about speculative deserialization and why it can't be done for arb serializers?)
 One might point out that it is possible to speculatively parse remaining elements of the bitstream and only stop
 when an invalid element is reached. This requires that we don't accidentily intrepret whatever came after in the
 bit stream as an element. This is true under the condition that an encoding for one type can never
 be an encoding for another type. In our model, serializers can choose arbitrary encodings so this is not possible.
-
-*)
-
-(*
-
-With cheerios style tree:
-Size, elements, shape
-vs
-shape, elements
-
-second one does not require size because it is known in the shape *)
-
-(**
 
 Beyond practical necesity, serialization can be used as a forcing function to
 understand the information contained within data structures. By requiring a well
