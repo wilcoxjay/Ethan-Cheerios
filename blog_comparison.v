@@ -79,6 +79,12 @@ exact {| serialize := bool_serialize;
        |}.
 Defined.
 
+(*
+
+TODO: add a sentence here basically asking "what should the type of serialize be?"
+
+*)
+
 (**
 
 In order to serialize something, we need to turn all of the information it carries into bits.
@@ -98,7 +104,7 @@ done, each with different trade offs as we will explore later, but we just need 
 *)
 
 (*begin code*)
-Definition medal_serialize (m: medal) := 
+Definition medal_serialize (m: medal) : list bool :=
   match m with
   | Gold => [true; true]
   | Silver => [true; false]
@@ -106,11 +112,19 @@ Definition medal_serialize (m: medal) :=
   end.
 (*end code*)
 
+(*
+
+TODO: ask "what's the type of deserialize?"
+
+first guess: list bool -> medal
+
+*)
+
 (**
 
-Perfect. Now we need to be able to reconstruct the value that was serialized. This gets a littly trickier,
+Perfect. Now we need to be able to reconstruct the value that was serialized. This gets a little trickier,
 because not every sequence of booleans decodes into a `medal`. What should happen when we encounter
-`[false; true]`? In cheerios we handle this case by returning the `Option` constructor `None` to indicate an
+`[false; true]`? In cheerios we handle this case by returning the `option` constructor `None` to indicate an
 error.
 
 *)
@@ -133,11 +147,19 @@ during the deserialization.
 
 *)
 
+(*
+
+TODO: make goal of "compositional serializer" explicit, since you can
+in principle serialize two medals directly via pattern matching, but
+without reusing the work already done
+
+*)
+
 (*begin code*)
 Definition medal_serialize2 (m1: medal) (m2: medal) :=
   medal_serialize m1 ++ medal_serialize m2.
 
-Fail Definition medal_deserialize2 (bools: list bool) : medal * medal :=
+Fail Definition medal_deserialize2 (bools: list bool) : option medal * option medal :=
 (medal_deserialize1 bools, medal_deserialize1 hmmm).
 (*end code*)
 
@@ -166,6 +188,25 @@ Definition medal_deserialize (bools: list bool) : option (medal * list bool) :=
   end.
 (*end code*)
 
+(*
+
+TODO: introduce spec and prove for medal
+
+*)
+
+(*
+
+TODO: move the definition of serializers here. also the boolean serializer.
+
+*)
+
+(*
+
+TODO: show instance for medal
+
+*)
+
+
 (**
 
 And now we can define our medal pair deserializer.
@@ -185,10 +226,24 @@ Definition medal_deserialize_pair (bools: list bool)
   end.
 (*end code*)
 
+(*
+
+TODO: discuss that `bools` is shadowed
+
+*)
+
 (**
 
 Generalizing this pair deserailizer for arbitrary types `A` and `B` comes naturally now that we have chosen
 better type signatures for serialization and deserialization.
+
+*)
+
+(*
+
+TODO: explicitly introduce A and B and the fact that they are Serializable. maybe even make the Section explicit.
+
+also emphasize that this code is identical to medal_pair stuff, just generalized
 
 *)
 
