@@ -26,68 +26,19 @@ encourage you to step through.
 
 ## Defining Serialization
 
-Our definition of Serialization includes three things: a serializer,
-a deserializer, and a proof of correctness.
-
 *)
 
 Require Import List Arith.
 Import ListNotations.
 
-(*begin code*)
-Definition serializer (A: Type) := A -> list bool.
-
-Definition deserializer (A: Type) :=
-  list bool -> option (A * list bool).
-
-Definition ser_deser_spec A
-           (ser : serializer A)
-           (deser : deserializer A) :=
-  forall (a : A) (bools: list bool),
-      (deser (ser a ++ bools)) = Some (a, bools).
-
-Class Serializer (A : Type) : Type := {
-    serialize : A -> list bool;
-    deserialize : list bool -> option (A * list bool);
-    ser_deser_identity : ser_deser_spec A serialize deserialize
-}.
-(*end code*)
-
 (*
 
-A trivial boolean serializer for use later 
-
-*)
-Definition bool_serialize (b: bool) := [b].
-Definition bool_deserialize (bools: list bool) :=
-  match bools with
-  | b :: bools => Some (b, bools)
-  | [] => None
-  end.
-Theorem bool_ser_deser_identity:
-  ser_deser_spec bool bool_serialize bool_deserialize.
-Proof.
-  unfold ser_deser_spec.
-  trivial.
-Qed.
-
-Instance BoolSerializer : Serializer bool.
-Proof.
-exact {| serialize := bool_serialize;
-         deserialize := bool_deserialize;
-         ser_deser_identity := bool_ser_deser_identity;
-       |}.
-Defined.
-
-(*
-
-TODO: add a sentence here basically asking "what should the type of serialize be?"
-
-*)
-
-(**
+To begin our definition, we must first settle on what types to use for serialization and
+deserialization. We'll start with serialization because it conceptually comes first in the
+process.
 
 In order to serialize something, we need to turn all of the information it carries into bits.
+It makes sense then to define a serializer for some type `A` as `A -> list bool`.
 Take the following type for example, representing olympic medals:
 
 *)
@@ -122,9 +73,27 @@ first guess: list bool -> medal
 
 (**
 
-Perfect. Now we need to be able to reconstruct the value that was serialized. This gets a little trickier,
-because not every sequence of booleans decodes into a `medal`. What should happen when we encounter
-`[false; true]`? In cheerios we handle this case by returning the `option` constructor `None` to indicate an
+Perfect, as it turns out, this type will be exactly what we need.
+
+Now we need to determine a type for the deserializer. At first thought, `list bool -> A` seems like
+a good option, but this runs into problems pretty quickly.
+
+*)
+
+Fail Definition medal_deserialize (bools: list bool) : medal :=
+  match bools with
+  | [true; true] => Gold
+  | [true; false] => Silver
+  | [false] => Bronze
+  end.
+
+(**
+
+Coq catches the mistake and points out that the bools are not exaustively matched on. What if
+they're empty? Fundimentally, we run into this problem because not every sequence of booleans
+decodes into a `medal`. Even non-empty sequences such as `[false; true]` pose issues. Since
+these sequences are not produced by the serializer, we can consider them to be erronious.
+In cheerios we handle this case by returning the `option` constructor `None` to indicate an
 error.
 
 *)
@@ -141,19 +110,12 @@ Definition medal_deserialize1 (bools: list bool) : option medal :=
 
 (**
 
-This works for a single medal being encoded in the bitstream, but we run into problems when we try and
-implement a more complicated type like a pair of medals. We can serialize just fine, but run into problems
-during the deserialization.
+This works for a single medal being encoded in the bitstream, but we again run into problems
+when we try and implement a more complicated type like a pair of medals reusing the work
+from above. Serialization works just fine, but deserialization is problematic.
 
 *)
 
-(*
-
-TODO: make goal of "compositional serializer" explicit, since you can
-in principle serialize two medals directly via pattern matching, but
-without reusing the work already done
-
-*)
 
 (*begin code*)
 Definition medal_serialize2 (m1: medal) (m2: medal) :=
@@ -190,25 +152,95 @@ Definition medal_deserialize (bools: list bool) : option (medal * list bool) :=
 
 (*
 
-TODO: introduce spec and prove for medal
+As we will see shortly, this type is sufficient to support both composition and malformed inputs.
+Let's take a moment to generalize this before continuing so we can also find a definition for the spec.
 
 *)
 
-(*
+(*begin code*)
+Definition serializer (A: Type) := A -> list bool.
 
-TODO: move the definition of serializers here. also the boolean serializer.
+Definition deserializer (A: Type) :=
+  list bool -> option (A * list bool).
+(*end code*)
+
+(**
+TODO fix this
+Also note that in the description above, we only have to handle what is output by the specific serilazer in
+question. Therefore, the `ser_deser_spec` only holds for a serializer/deserializer pair, rather than a
+serializer and an arbitrary deserializer or vice versa. In general, the correctness proofs tend to be straightforward and repetitive, but this first one is included here to show the structure.
+
+At a minimum, our spec only needs to worry about encodings which our serializer produces.
+This eliminates our need to reason about the error cases that were nececary in the
+deserializer. However, in doing this, nothing is said about how malformed bitstrings are
+parsed, or that every deserialized value can be generated by exactly one bit string. These
+may be useful properties to prove, but cheerios does not handle deserialization
+from unknown and unverified sources since this minimum spec is enough.
+
+The `bools` variable allows for the composition by ensuring whatever is left after the
+deserialization process is finished remains untouched. TODO- incorperate this better
 
 *)
 
-(*
-
-TODO: show instance for medal
-
-*)
-
+(*begin code*)
+Definition ser_deser_spec A
+           (ser : serializer A)
+           (deser : deserializer A) :=
+  forall (a : A) (bools: list bool),
+      (deser (ser a ++ bools)) = Some (a, bools).
+(*end code*)
 
 (**
 
+Wrapping this up in a class gives us the following definition which includes the following
+three things: a serializer, a deserializer, and a proof of correctness.
+
+*)
+
+(*begin code*)
+Class Serializer (A : Type) : Type := {
+    serialize : A -> list bool;
+    deserialize : list bool -> option (A * list bool);
+    ser_deser_identity : ser_deser_spec A serialize deserialize
+}.
+(*end code*)
+
+
+(*
+
+Concretely this becomes:
+
+*)
+
+(*
+
+TODO say something about the medal proof?
+
+*)
+
+(*begin code*)
+Theorem medal_ser_deser_identity :
+  ser_deser_spec medal medal_serialize medal_deserialize.
+Proof.
+  unfold ser_deser_spec.
+  unfold medal_deserialize.
+  unfold medal_serialize.
+  intros m.
+  destruct m; reflexivity.
+Qed.
+
+Instance MedalSerializer : Serializer (A * B).
+Proof.
+exact {| serialize := medal_serialize;
+         deserialize := medal_deserialize;
+         ser_deser_identity := medal_ser_deser_identity;
+       |}.
+Defined.
+(*end code*)
+
+(**
+
+TODO Is this even needed, or can we just go straight to Pair?
 And now we can define our medal pair deserializer.
 
 *)
@@ -226,33 +258,24 @@ Definition medal_deserialize_pair (bools: list bool)
   end.
 (*end code*)
 
-(*
-
-TODO: discuss that `bools` is shadowed
-
-*)
-
 (**
 
+Note that the variable `bools` is shadowed several times in this definition. Normally this can complicate
+code, but in this case it improves clarity because `bools` always refers to "what's left to parse".
+
 Generalizing this pair deserailizer for arbitrary types `A` and `B` comes naturally now that we have chosen
-better type signatures for serialization and deserialization.
+better type signatures for serialization and deserialization. These definitions are exactly the same
+as medal_pair with the exception of more general types. Wrapping them in a section avoids some
+boilerplate. Note that `A` and `B` must have a serializer themselves.
 
 *)
 
-(*
-
-TODO: explicitly introduce A and B and the fact that they are Serializable. maybe even make the Section explicit.
-
-also emphasize that this code is identical to medal_pair stuff, just generalized
-
-*)
-
+(*begin code*)
 Section PairSerializer.
 Variable A B : Type.
 Variable serA : Serializer A.
 Variable serB : Serializer B.
 
-(*begin code*)
 Definition pair_serialize (p : A * B) : list bool :=
   serialize (fst p) ++ serialize (snd p).
 
@@ -289,43 +312,6 @@ exact {| serialize := pair_serialize;
 Defined.
 
 End PairSerializer.
-
-(*
-
-TODO I don't like how this is bolted on at the end
-
-*)
-
-(**
-
-Before we move on, we need to prove that all serializations of `medal` can be deserialized correctly. Note that when
-proving this fact, we only need to worry about encodings which our serializer produces. This eliminates
-our need to reason about the error cases that were nececary in the deserializer. In doing this, nothing
-is said about how malformed bitstrings are parsed, or that every deserialized value can be generated by
-exactly one bit string. These may be useful properties to prove, but cheerios does not handle deserialization
-from unknown and unverified sources.
-
-*)
-
-(*begin code*)
-Theorem medal_ser_deser_identity :
-  ser_deser_spec medal medal_serialize medal_deserialize.
-Proof.
-  unfold ser_deser_spec.
-  unfold medal_deserialize.
-  unfold medal_serialize.
-  intros m.
-  destruct m; reflexivity.
-Qed.
-(*end code*)
-
-(**
-
-Also note that in the description above, we only have to handle what is output by the specific serilazer in
-question. Therefore, the `ser_deser_spec` only holds for a serializer/deserializer pair, rather than a
-serializer and an arbitrary deserializer or vice versa. In general, the correctness proofs tend to be straightforward and repetitive, but this first one is included here to show the structure.
-
-*)
 
 (**
 
@@ -540,6 +526,32 @@ exact {| serialize := list_serialize;
 Defined.
 
 End ListSerializer.
+
+(*
+
+A trivial boolean serializer for use with trees 
+
+*)
+Definition bool_serialize (b: bool) := [b].
+Definition bool_deserialize (bools: list bool) :=
+  match bools with
+  | b :: bools => Some (b, bools)
+  | [] => None
+  end.
+Theorem bool_ser_deser_identity:
+  ser_deser_spec bool bool_serialize bool_deserialize.
+Proof.
+  unfold ser_deser_spec.
+  trivial.
+Qed.
+
+Instance BoolSerializer : Serializer bool.
+Proof.
+exact {| serialize := bool_serialize;
+         deserialize := bool_deserialize;
+         ser_deser_identity := bool_ser_deser_identity;
+       |}.
+Defined.
 
 (**
 
