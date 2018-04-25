@@ -168,7 +168,7 @@ Definition deserializer (A: Type) :=
 TODO fix this
 Also note that in the description above, we only have to handle what is output by the specific serilazer in
 question. Therefore, the `ser_deser_spec` only holds for a serializer/deserializer pair, rather than a
-serializer and an arbitrary deserializer or vice versa. In general, the correctness proofs tend to be straightforward and repetitive, but this first one is included here to show the structure.
+serializer and an arbitrary deserializer or vice versa.
 
 At a minimum, our spec only needs to worry about encodings which our serializer produces.
 This eliminates our need to reason about the error cases that were nececary in the
@@ -208,13 +208,9 @@ Class Serializer (A : Type) : Type := {
 
 (*
 
+In general, the correctness proofs tend to be straightforward and
+repetitive, but this first one is included here to show the structure.
 Concretely this becomes:
-
-*)
-
-(*
-
-TODO say something about the medal proof?
 
 *)
 
@@ -229,7 +225,7 @@ Proof.
   destruct m; reflexivity.
 Qed.
 
-Instance MedalSerializer : Serializer (A * B).
+Instance MedalSerializer : Serializer medal.
 Proof.
 exact {| serialize := medal_serialize;
          deserialize := medal_deserialize;
@@ -379,7 +375,7 @@ Fixpoint nat_serialize_broken (n : nat) : list bool :=
 (**
 
 Under this definition, it's unclear what deserializing `[true, true true]` as a pair of `nat`s should
-return. It could be `(0,3)`, `(1,2)`, `(2,1)` or `(3,0)`. To remove this ambiguity, the information about "when to stop" must be
+return. It could be `(0,3)`, `(1,2)`, `(2,1)` or `(3,0)`. To remove this ambiguity, the information about when to stop must be
 encoded in the stream itself in one form or another rather than implicitly, using the end of the stream as a token.
 Consider the serialized pair of `nat`s `[true, false, true, true, false]`, serialized using the not-broken serializer.
 It is unambigiously `(1, 2)`. When deserializing it is known precisely when each `nat`
@@ -435,25 +431,26 @@ Fixpoint list_serialize_inter (l : list A) : list bool :=
 
 (**
 
-TODO rephrase
-Since information about when to stop deserializating an element is not known until the end, there is no structure
-to recurse on. In this way, we conjecture that it's impossible to define this deserialization function
-without using general recursion. An attempted definition is given below:
+With this scheme, deserialization again proves to be difficult. In the definiton below, because `bools_after_elem`
+is not in the constructor for `bools`, the definition fails. We know that it will work because `bools_after_elem`
+is contained in `bools`, however the type system does not see this. An attempted definition is given below:
 
 *)
 
 (*begin code*)
-Fail Fixpoint list_deserialize_inter bools :=
+  (* TODO check that this formats correctly*)
+Fail Fixpoint list_deserialize_inter 
+  (bools: list bool) : option (list A * list bool) :=
   match bools with
   | [] => None
   | false :: bools => Some ([], bools)
   | true :: bools =>
-    match nat_deserialize bools with
+    match deserialize bools with
     | None => None
-    | Some (n, bools) =>
-      match list_deserialize_em bools with
+    | Some (a, bools_after_elem) =>
+      match list_deserialize_em bools_after_elem with
       | None => None
-      | Some (tail, bools) => Some (n :: tail, bools)
+      | Some (tail, bools_after_list) => Some (a :: tail, bools_after_list)
       end
     end
   end.
@@ -461,9 +458,11 @@ Fail Fixpoint list_deserialize_inter bools :=
 
 (**
 
-To solve this recursion problem, we can take the same information encoded in the continuation bits and
-move it to the front of the list's encoding in the form of a size. Now we can recurse on the number of
-elements remaining.
+In this way, we conjecture that it's impossible to define this deserialization function
+without using general recursion. To solve this recursion problem, we can take the same
+information encoded in the continuation bits and move it to the front of the list's
+encoding in the form of a size. Now we can recurse on the number of elements remaining
+as a `nat`.
 
 *)
 
