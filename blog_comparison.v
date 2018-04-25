@@ -78,6 +78,8 @@ Perfect, as it turns out, this type will be exactly what we need.
 Now we need to determine a type for the deserializer. At first thought, `list bool -> A` seems like
 a good option, but this runs into problems pretty quickly.
 
+TODO: mention very briefly that the goal is for deserialize(serialize(a)) = a.
+
 *)
 
 Fail Definition medal_deserialize (bools: list bool) : medal :=
@@ -90,11 +92,13 @@ Fail Definition medal_deserialize (bools: list bool) : medal :=
 (**
 
 Coq catches the mistake and points out that the bools are not exaustively matched on. What if
-they're empty? Fundimentally, we run into this problem because not every sequence of booleans
+they're empty? Fundamentally, we run into this problem because not every sequence of booleans
 decodes into a `medal`. Even non-empty sequences such as `[false; true]` pose issues. Since
 these sequences are not produced by the serializer, we can consider them to be erronious.
 In cheerios we handle this case by returning the `option` constructor `None` to indicate an
 error.
+
+TODO: then the spec would be deserialize(serialize(a)) = Some(a)
 
 *)
 
@@ -117,6 +121,12 @@ from above. Serialization works just fine, but deserialization is problematic.
 *)
 
 
+(*
+
+TODO: change name of medad_serialize2 to be about pairs?
+
+*)
+
 (*begin code*)
 Definition medal_serialize2 (m1: medal) (m2: medal) :=
   medal_serialize m1 ++ medal_serialize m2.
@@ -137,6 +147,17 @@ deserialization operation to fail. Failure happens at this level because once an
 impossible in general to resume serialization of the remaining content.
 
 Let's take another shot at deserializing with this new return type.
+
+TODO: mention spec question
+
+property 1: deserialize(serialize(a)) = Some(a, []);
+
+property 2: deserialize(bools) = Some(a, bools') ->
+            deserialize(bools ++ bools2) = Some(a, bools' ++ bools2)
+
+also, for fun, maybe prove (not in blog post) that these two imply our actual spec.
+
+TODO: figure out when to motivate/explain the difference between property 1 and the actual spec.
 
 *)
 
@@ -165,10 +186,6 @@ Definition deserializer (A: Type) :=
 (*end code*)
 
 (**
-TODO fix this
-Also note that in the description above, we only have to handle what is output by the specific serilazer in
-question. Therefore, the `ser_deser_spec` only holds for a serializer/deserializer pair, rather than a
-serializer and an arbitrary deserializer or vice versa.
 
 At a minimum, our spec only needs to worry about encodings which our serializer produces.
 This eliminates our need to reason about the error cases that were nececary in the
@@ -239,6 +256,8 @@ Defined.
 TODO Is this even needed, or can we just go straight to Pair?
 And now we can define our medal pair deserializer.
 
+jrw: I think it's fine to go straight to generic pairs
+
 *)
 
 (*begin code*)
@@ -268,7 +287,8 @@ boilerplate. Note that `A` and `B` must have a serializer themselves.
 
 (*begin code*)
 Section PairSerializer.
-Variable A B : Type.
+Variable A : Type.
+Variable B : Type.
 Variable serA : Serializer A.
 Variable serB : Serializer B.
 
@@ -284,7 +304,6 @@ Definition pair_deserialize bools : option ((A * B) * list bool) :=
     end
   | None => None
   end.
-(*end code*)
 
 Theorem pair_ser_deser_identity : 
   ser_deser_spec (A * B) pair_serialize pair_deserialize.
@@ -308,6 +327,7 @@ exact {| serialize := pair_serialize;
 Defined.
 
 End PairSerializer.
+(*end code*)
 
 (**
 
@@ -438,8 +458,7 @@ is contained in `bools`, however the type system does not see this. An attempted
 *)
 
 (*begin code*)
-  (* TODO check that this formats correctly*)
-Fail Fixpoint list_deserialize_inter 
+Fail Fixpoint list_deserialize_inter
   (bools: list bool) : option (list A * list bool) :=
   match bools with
   | [] => None
@@ -450,7 +469,8 @@ Fail Fixpoint list_deserialize_inter
     | Some (a, bools_after_elem) =>
       match list_deserialize_em bools_after_elem with
       | None => None
-      | Some (tail, bools_after_list) => Some (a :: tail, bools_after_list)
+      | Some (tail, bools_after_list) =>
+        Some (a :: tail, bools_after_list)
       end
     end
   end.
@@ -1058,24 +1078,23 @@ within that type. Imagine we encode a list as follows:
 
 ![](list_size_end.png)
 
-TODO Make this reasoning more formal. Why we need to prove |x| > i is somewhat unclear
-Since the size of the list is at the end, rather than at the beginning information about how to deserialize
+Since the size of the list is at the end, rather than at the beginning, information about how to deserialize
 the structure isn't known until its too late. Similarly, we couldn't put the size anywhere in the middle (say
-after the first element), because of the possibility of an empty list. Each element `x[i]` depends on the fact
-that `|x| > i`. Therefore, we must show `|x| > i` in our encoding before attempting to deserialize `x[i]`.
+after the first element), because of the possibility of an empty list. In other words, before deserializing each element,
+we need to know that it actually is an element of the list, and not some other data coming after the list.
 
-This is why the interleaved list serializer is able to work. Right before element `x[i]` is deserialized, we prove
-that `|x| > i` with the continue bit.
+This is why the interleaved list serializer is able to work. Right before each element is deserialized, we mark
+that the list continues with the continue bit.
 
 This is also why the tree serializers are able to encode the shape at the front or the end. In both cases, the size
 is known so deserializing additional elements is justified. The question of how to arrange these elements can
 be reasoned about independantly of the elements themselves, therefore the shape of the tree can be encoded without
 regard to where the element data is located.
 
-One might point out that it is possible to speculatively parse remaining elements of the bitstream and only stop
-when an invalid element is reached. This requires that we don't accidentily intrepret whatever came after in the
-bit stream as an element. This is true under the condition that an encoding for one type can never
-be an encoding for another type. In our model, serializers can choose arbitrary encodings so this is not possible.
+One might expect to be able to speculatively parse elements of the bitstream and stop
+when an invalid element is reached. But this requires that we don't accidentily intrepret whatever came after in the
+bit stream as an element. If the encoding of different types are guaranteed to not overlap, then this would be possible.
+But in our model, serializers can choose arbitrary encodings, so this is not possible.
 
 Beyond practical necesity, serialization can be used as a forcing function to
 understand the information contained within data structures. By requiring a well
