@@ -34,8 +34,10 @@ Import ListNotations.
 (*
 
 To begin our definition, we must first settle on what types to use for serialization and
-deserialization. We'll start with serialization because it conceptually comes first in the
-process.
+deserialization, as well as a correctness specification. We want our correctness spec to
+roughly show that serialization and deserialization are inverses so we know that any
+serialized object can be deserialized to the same object. We'll start with
+serialization because it conceptually comes first in the process.
 
 In order to serialize something, we need to turn all of the information it carries into bits.
 It makes sense then to define a serializer for some type `A` as `A -> list bool`.
@@ -63,22 +65,14 @@ Definition medal_serialize (m: medal) : list bool :=
   end.
 (*end code*)
 
-(*
-
-TODO: ask "what's the type of deserialize?"
-
-first guess: list bool -> medal
-
-*)
-
 (**
 
 Perfect, as it turns out, this type will be exactly what we need.
 
-Now we need to determine a type for the deserializer. At first thought, `list bool -> A` seems like
-a good option, but this runs into problems pretty quickly.
-
-TODO: mention very briefly that the goal is for deserialize(serialize(a)) = a.
+Now we need to determine a type for the deserializer. We want something that acts as an
+inverse to the serialization function we picked. At first thought, `list bool -> A` seems
+like a good option. This would allow our spec to be `deserialize(serialize(a)) = a`.
+However as we will see this runs into problems pretty quickly.
 
 *)
 
@@ -98,12 +92,14 @@ these sequences are not produced by the serializer, we can consider them to be e
 In cheerios we handle this case by returning the `option` constructor `None` to indicate an
 error.
 
-TODO: then the spec would be deserialize(serialize(a)) = Some(a)
+This makes the spec become `deserialize(serialize(a)) = Some(a)`, ie deserialization
+on any serialized stream always succeedes and returns the correct value.
 
 *)
 
 (*begin code*)
-Definition medal_deserialize1 (bools: list bool) : option medal :=
+Definition medal_deserialize1 (bools: list bool)
+    : option medal :=
   match bools with
   | [true; true] => Some Gold
   | [true; false] => Some Silver
@@ -120,18 +116,11 @@ from above. Serialization works just fine, but deserialization is problematic.
 
 *)
 
-
-(*
-
-TODO: change name of medad_serialize2 to be about pairs?
-
-*)
-
 (*begin code*)
-Definition medal_serialize2 (m1: medal) (m2: medal) :=
-  medal_serialize m1 ++ medal_serialize m2.
+Definition medal_serialize_par (medals: medal * medal) :=
+  medal_serialize (fst medals) ++ medal_serialize (snd medals).
 
-Fail Definition medal_deserialize2 (bools: list bool) : option medal * option medal :=
+Fail Definition medal_deserialize_pair (bools: list bool) : option (medal * medal) :=
 (medal_deserialize1 bools, medal_deserialize1 hmmm).
 (*end code*)
 
@@ -295,7 +284,8 @@ Variable serB : Serializer B.
 Definition pair_serialize (p : A * B) : list bool :=
   serialize (fst p) ++ serialize (snd p).
 
-Definition pair_deserialize bools : option ((A * B) * list bool) :=
+Definition pair_deserialize bools 
+    : option ((A * B) * list bool) :=
   match deserialize bools with
   | Some (a, bools) => 
     match deserialize bools with
@@ -470,7 +460,7 @@ Fail Fixpoint list_deserialize_inter
       match list_deserialize_em bools_after_elem with
       | None => None
       | Some (tail, bools_after_list) =>
-        Some (a :: tail, bools_after_list)
+          Some (a :: tail, bools_after_list)
       end
     end
   end.
