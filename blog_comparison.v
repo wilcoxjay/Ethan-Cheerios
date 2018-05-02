@@ -391,7 +391,7 @@ data plays a crucial part in showing `ser_deser_identity`.
 When serializing lists (or any variable sized collection) we need to make sure to include some information
 about the structure in the serialized stream. Imagine we did not do this, and we serialized a pair of lists
 into the byte stream. We would get an encoding which looks like the figure below. As you can see, it's 
-impossible to tell where one list stops and the next begins.
+impossible to tell where one list stops and the next begins just by looking at the stream.
 
 ![](list_broken.png)
 
@@ -399,18 +399,13 @@ This serializer is broken for the same reason as the broken `nat` serializer, th
 object must be entirely contained within the bitstream. Note that we don't run into this problem with any
 collection of fixed size, like a pair or vector. It is clear when to stop deserializing a `Vec 5` because 5
 elements have been deserialized. The information about the shape of the data in this case is encoded in the
-type, and since the type is known to the serializer and the deserializer, it does not need to be encoded.
+type, and since the type is known to the serializer and the deserializer, it does not need to be encoded
+in the bitstream.
 
 Lets start with solving this problem by including a "continue" bit before every element. If it is true an element
 follows, and it if it is false, the end of the list has been reached. This appears as follows:
 
 ![](list_interleaved.png)
-
-TODO: Keep this?
-There are a couple of advantages to this which relate to when the information about the structure is
-known. This structure allows lists of unknown (potentially infinite) size to be serialized. It also
-losens the requirement that a structure must be built first in deserialization. This isn't a big deal
-for lists, but it can be helpful with more complicated structures.
 
 Let's see what this looks like in code.
 
@@ -462,6 +457,8 @@ without using general recursion. To solve this recursion problem, we can take th
 information encoded in the continuation bits and move it to the front of the list's
 encoding in the form of a size. Now we can recurse on the number of elements remaining
 as a `nat`.
+
+![](list_front.png)
 
 *)
 
@@ -524,6 +521,19 @@ exact {| serialize := list_serialize;
 Defined.
 
 End ListSerializer.
+
+(** 
+
+TODO: Talk about this part. Is it relevant? It was right before the interleaved, but it's hard to
+compare until you know what it's being compared to. Maybe a more general discussion of the tradeoffs
+is called for, provided it is in the scope of the post.
+
+There are a couple of advantages to this which relate to when the information about the structure is
+known. This structure allows lists of unknown (potentially infinite) size to be serialized. It also
+losens the requirement that a structure must be built first in deserialization. This isn't a big deal
+for lists, but it can be helpful with more complicated structures.
+
+*)
 
 (*
 
