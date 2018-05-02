@@ -71,7 +71,7 @@ Perfect, as it turns out, this type will be exactly what we need.
 
 Now we need to determine a type for the deserializer. We want something that acts as an
 inverse to the serialization function we picked. At first thought, `list bool -> A` seems
-like a good option. This would allow our spec to be `deserialize(serialize(a)) = a`.
+like a good option. This would allow our spec to be `deserialize (serialize a) = a`.
 However as we will see this runs into problems pretty quickly.
 
 *)
@@ -92,14 +92,13 @@ these sequences are not produced by the serializer, we can consider them to be e
 In cheerios we handle this case by returning the `option` constructor `None` to indicate an
 error.
 
-This makes the spec become `deserialize(serialize(a)) = Some(a)`, ie deserialization
+This makes the spec become `deserialize (serialize a) = Some a`, ie deserialization
 on any serialized stream always succeedes and returns the correct value.
 
 *)
 
 (*begin code*)
-Definition medal_deserialize1 (bools: list bool)
-    : option medal :=
+Definition medal_deserialize1 (bools: list bool) : option medal :=
   match bools with
   | [true; true] => Some Gold
   | [true; false] => Some Silver
@@ -117,7 +116,7 @@ from above. Serialization works just fine, but deserialization is problematic.
 *)
 
 (*begin code*)
-Definition medal_serialize_par (medals: medal * medal) :=
+Definition medal_serialize_pair (medals: medal * medal) :=
   medal_serialize (fst medals) ++ medal_serialize (snd medals).
 
 Fail Definition medal_deserialize_pair (bools: list bool)
@@ -169,7 +168,7 @@ How does this alter the correctness specification? We can start by taking what
 we had last time and making it typecheck:
 
 ```
-deser (ser a) = Some(a, [])
+deser (ser a) = Some (a, [])
 ```
 
 However this still doesn't address the problem with the remaining bools. How do we reason
@@ -177,14 +176,16 @@ about deserialization with any other input following? Another attempt leads us t
 like this:
 
 ```
-deser ((ser a) ++ (ser b)) = Some(a, ser b)
+deser (ser a ++ ser b) = Some (a, ser b)
 ```
+
+TODO: this doesn't actually work for anything more than a single b coming after a.
 
 This works, but now we have to reason about two serialized objects. It's easier just to
 generalize again:
 
 ```
-deser ((ser a) ++ bools) = Some(a, bools)
+deser (ser a ++ bools) = Some (a, bools)
 ```
 
 At a minimum, our spec only needs to worry about encodings which our serializer produces.
@@ -402,8 +403,8 @@ elements have been deserialized. The information about the shape of the data in 
 type, and since the type is known to the serializer and the deserializer, it does not need to be encoded
 in the bitstream.
 
-Lets start with solving this problem by including a "continue" bit before every element. If it is true an element
-follows, and it if it is false, the end of the list has been reached. This appears as follows:
+Let's start with solving this problem by including a "continue" bit before every element. If it is true an element
+follows, and if it is false, the end of the list has been reached. This appears as follows:
 
 ![](list_interleaved.png)
 
@@ -426,8 +427,9 @@ Fixpoint list_serialize_inter (l : list A) : list bool :=
 (**
 
 With this scheme, deserialization again proves to be difficult. In the definiton below, because `bools_after_elem`
-is not in the constructor for `bools`, the definition fails. We know that it will work because `bools_after_elem`
-is contained in `bools`, however the type system does not see this. An attempted definition is given below:
+is not a syntactic subterm of `bools`, the termination checker refuses to accept this definition. In fact, the
+definition *does* terminate, since `bools_after_elem` is a strict suffix of `bools`,
+but the type system does not see this. An attempted definition is given below:
 
 *)
 
@@ -452,11 +454,11 @@ Fail Fixpoint list_deserialize_inter
 
 (**
 
-In this way, we conjecture that it's impossible to define this deserialization function
+It is intuitively impossible to define this deserialization function
 without using general recursion. To solve this recursion problem, we can take the same
 information encoded in the continuation bits and move it to the front of the list's
-encoding in the form of a size. Now we can recurse on the number of elements remaining
-as a `nat`.
+encoding in the form of a size. Then the rest of the deserializer can recurse on the
+ number of elements remaining.
 
 ![](list_front.png)
 
@@ -522,16 +524,10 @@ Defined.
 
 End ListSerializer.
 
-(** 
+(**
 
-TODO: Talk about this part. Is it relevant? It was right before the interleaved, but it's hard to
-compare until you know what it's being compared to. Maybe a more general discussion of the tradeoffs
-is called for, provided it is in the scope of the post.
-
-There are a couple of advantages to this which relate to when the information about the structure is
-known. This structure allows lists of unknown (potentially infinite) size to be serialized. It also
-losens the requirement that a structure must be built first in deserialization. This isn't a big deal
-for lists, but it can be helpful with more complicated structures.
+TODO: briefly summarize above discussion, sayng that interleaved would work fine in most
+languages, but not with just structural recursion.
 
 *)
 
@@ -565,7 +561,7 @@ Defined.
 
 ## Binary Trees
 
-To continue exploring this idea of serializing shape, we neeed to look at a more complicated data
+To continue exploring this idea of serializing shape, we need to look at a more complicated data
 structure such as a binary tree. Our definition of a binary tree is straightforward:
 
 *)
@@ -584,11 +580,17 @@ Arguments node {_} _ _ _.
 
 (**
 
+TODO: clean this sentence up
+
+"Just as with lists, there are two ways of serializing trees: interleaved and up front..."
+
 For the interleaved shape tree serializer, the concept of a "path" is needed. A path is simply the list of
 directions taken from the root to reach some node. We'll use true to represent left and false to
-represent right. Below is the path [true, false].
+represent right. Below is the path `[true, false]`.
 
 ![](path.png)
+
+TODO: just say "paths are stored in top down order" and then take out the reverses from the definition below.
 
 The only important thing to know about paths is that when recursing into a tree the direction traveled
 must be recorded at the end of the list rather than at the start. If right was first in the list, then
@@ -605,6 +607,9 @@ all nodes in the tree, all information captured by the original data structure h
 Even though an interleaved structure is impossible to deserialize without general recursion, using an
 interleaved structure is still possible if there is just enough information up front to recurse on. The
 number of nodes in the tree provides a nice metric.
+
+TODO: clarify that neither tree deserializer is "truly interleaved", since even this one has a header
+with the tree size.
 
 The encoding using an interleaved structure looks like this:
 
@@ -886,6 +891,8 @@ but we still must reason about insertions.
 *)
 
 (**
+
+### Shape-based tree serializer
 
 Alternatively, the structure may be recorded at the beginning and then filled in as the tree is parsed.
 We must now reason about a tree as both it's shape (`tree unit`) and it's elements
