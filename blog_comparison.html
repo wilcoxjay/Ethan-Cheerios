@@ -118,7 +118,7 @@
            |}.
     <span style='color:#a020f0'>Defined</span>.
 </code></pre>
-<p>Generalizing this pair deserailizer for arbitrary types <code>A</code> and <code>B</code> comes naturally now that we have chosen better type signatures for serialization and deserialization. These definitions are exactly the same as medal_pair with the exception of more general types. Wrapping them in a section avoids some boilerplate. Note that <code>A</code> and <code>B</code> must have a serializer themselves.</p>
+<p>Generalizing this pair deserailizer for arbitrary types <code>A</code> and <code>B</code> comes naturally now that we have chosen better type signatures for serialization and deserialization. Wrapping all three components in a section avoids some boilerplate. Note that there must be a serializer for <code>A</code> and <code>B</code> in order for our <code>A * B</code> serializer to function.</p>
 <pre><code>    <span style='color:#a020f0'>Section</span> <span style='color:#3b10ff'>PairSerializer</span>.
     <span style='color:#a020f0'>Variable</span> <span style='color:#3b10ff'>A</span> : <span style='color:#228b22'>Type</span>.
     <span style='color:#a020f0'>Variable</span> <span style='color:#3b10ff'>B</span> : <span style='color:#228b22'>Type</span>.
