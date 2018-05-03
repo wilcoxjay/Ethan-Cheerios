@@ -98,7 +98,7 @@ on any serialized stream always succeedes and returns the correct value.
 *)
 
 (*begin code*)
-Definition medal_deserialize1 (bools: list bool) : option medal :=
+Definition medal_deserialize1 (bools: list bool):option medal :=
   match bools with
   | [true; true] => Some Gold
   | [true; false] => Some Silver
@@ -138,7 +138,8 @@ impossible in general to resume serialization of the remaining content.
 *)
 
 (*begin code*)
-Definition medal_deserialize (bools: list bool) : option (medal * list bool) :=
+Definition medal_deserialize (bools: list bool)
+	: option (medal * list bool) :=
   match bools with
   | true :: true :: bools => Some (Gold, bools)
   | true :: false :: bools => Some (Silver, bools)
@@ -630,7 +631,7 @@ Fixpoint tree_size (t : tree A) : nat :=
   | node _ l r => 1 + tree_size l + tree_size r
   end.
 
-Fixpoint tree_insert (into t: tree A) (path: list bool): tree A :=
+Fixpoint tree_insert (into t: tree A)(path: list bool): tree A :=
   match into with
   | leaf => t
   | node a l r =>
@@ -685,7 +686,8 @@ Fixpoint tree_deserialize_inter_impl
 
 Definition tree_deserialize_inter bools :=
   match nat_deserialize bools with 
-  | Some (size, bools) => tree_deserialize_inter_impl size leaf bools
+  | Some (size, bools) => 
+		tree_deserialize_inter_impl size leaf bools
   | None => None
   end.
 (*end code*)
@@ -699,7 +701,7 @@ tree so it does not overwrite data or fall off the end.
 *)
 
 (*begin code*)
-Fixpoint leaf_insertable (into: tree A) (path: list bool): Prop :=
+Fixpoint leaf_insertable (into: tree A)(path: list bool): Prop :=
   match into with
   | leaf => 
     (* Only if the location and tree run out at the same time
@@ -930,21 +932,28 @@ Fixpoint tree_serialize_shape (t : tree A) : list bool :=
 Fixpoint tree_serialize_data_preorder (t : tree A) : list bool :=
   match t with
   | leaf => [] (* No data contained within leaf nodes *)
-  | node a l r => serialize a ++ tree_serialize_data_preorder l ++
-                  tree_serialize_data_preorder r
+  | node a l r => serialize a ++
+				  tree_serialize_data_preorder l ++
+				  tree_serialize_data_preorder r
   end.
 
 Definition tree_serialize_front (t: tree A) : list bool :=
   tree_serialize_shape t ++ tree_serialize_data_preorder t.
 
-Fixpoint tree_deserialize_shape (bools: list bool) (progress: list (list (tree unit))) : option (tree unit * list bool) :=
+Fixpoint tree_deserialize_shape 
+	(bools: list bool) (progress: list (list (tree unit)))
+	: option (tree unit * list bool) :=
   match bools with
   | false :: bools => 
     match progress with
     | [] => Some (leaf, bools)
-    | level :: progress => tree_deserialize_shape bools ((leaf :: level) :: progress)
+    | level :: progress =>
+		tree_deserialize_shape
+		  bools
+		  ((leaf :: level) :: progress)
     end
-  | true :: true :: bools => tree_deserialize_shape bools ([] :: progress)
+  | true :: true :: bools =>
+		tree_deserialize_shape bools ([] :: progress)
   | true :: false :: bools =>
     match progress with
     | [] => None (* end without a beginning *)
@@ -955,14 +964,19 @@ Fixpoint tree_deserialize_shape (bools: list bool) (progress: list (list (tree u
       end
     | level :: parent :: progress =>
       match level with
-      | [r; l] => tree_deserialize_shape bools ((node tt l r :: parent) :: progress)
+      | [r; l] =>
+		tree_deserialize_shape
+		  bools
+		  ((node tt l r :: parent) :: progress)
       | _ => None
       end
     end
   | _ => None
   end.
 
-Fixpoint tree_deserialize_front_elts  (shape : tree unit) (bools : list bool) : option (tree A * list bool) :=
+Fixpoint tree_deserialize_front_elts
+	(shape : tree unit) (bools : list bool) 
+	: option (tree A * list bool) :=
   match shape with
   | leaf => Some (leaf, bools)
   | node _ l r =>
@@ -980,10 +994,12 @@ Fixpoint tree_deserialize_front_elts  (shape : tree unit) (bools : list bool) : 
     end
   end.
 
-Definition tree_deserialize_front (bools : list bool) : option (tree A * list bool) :=
+Definition tree_deserialize_front (bools : list bool)
+	: option (tree A * list bool) :=
   match tree_deserialize_shape bools [] with
   | None => None
-  | Some (shape, bools) => tree_deserialize_front_elts shape bools
+  | Some (shape, bools) =>
+		tree_deserialize_front_elts shape bools
   end.
 (*end code*)
 
