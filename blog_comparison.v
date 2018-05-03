@@ -310,7 +310,6 @@ End PairSerializer.
 
 (**
 
-
 Note that the variable `bools` is shadowed several times in this definition. Normally this can complicate
 code, but in this case it improves clarity because `bools` always refers to "what's left to parse".
 
