@@ -586,21 +586,11 @@ TODO: clean this sentence up
 "Just as with lists, there are two ways of serializing trees: interleaved and up front..."
 
 For the interleaved shape tree serializer, the concept of a "path" is needed. A path is simply the list of
-directions taken from the root to reach some node. We'll use true to represent left and false to
-represent right. Below is the path `[true, false]`.
+directions taken from the root to reach some node. We'll use `true` to represent left and `false`
+to represent right. These directions are stored with the head at the top of the tree.
+Below is the path `[true, false]`.
 
 ![](path.png)
-
-TODO: just say "paths are stored in top down order" and then take out the reverses from the definition below.
-
-The only important thing to know about paths is that when recursing into a tree the direction traveled
-must be recorded at the end of the list rather than at the start. If right was first in the list, then
-it should remain first throughout. In our definitions, this concept is represented as reversing the
-breadcrumbs which were appended to the head of the list, after the recursion has finished.
-
-*)
-
-(**
 
 Using the concept of a path, the position and data of any node can be serialized. When this is done for
 all nodes in the tree, all information captured by the original data structure has been encoded.[^tree_efficient]
@@ -642,16 +632,18 @@ Fixpoint tree_insert (into t: tree A)(path: list bool): tree A :=
       end
   end.
 
-Fixpoint tree_serialize_subtree_inter (t: tree A) (location: list bool) :=
+Fixpoint tree_serialize_subtree_inter 
+    (t: tree A) (path: list bool) :=
   match t with
     | leaf => []
-    | node a l r => serialize location ++ serialize a
-      ++ tree_serialize_subtree_inter l (true :: location)
-      ++ tree_serialize_subtree_inter r (false :: location)
+    | node a l r => serialize path ++ serialize a
+      ++ tree_serialize_subtree_inter l (path ++ [true])
+      ++ tree_serialize_subtree_inter r (path ++ [false])
   end.
 
 Definition tree_serialize_inter (t: tree A) : list bool :=
-  nat_serialize (tree_size t) ++ tree_serialize_subtree_inter t [].
+  nat_serialize (tree_size t) ++ 
+  tree_serialize_subtree_inter t [].
 (*end code*)
 
 (**
@@ -671,13 +663,13 @@ Fixpoint tree_deserialize_inter_impl
   | S n =>
     match deserialize bools with
     | None => None
-    | Some (location, bools) =>
+    | Some (path, bools) =>
       match deserialize bools with
       | None => None
       | Some (a, bools) =>
         tree_deserialize_inter_impl
           n
-          (tree_insert root (node a leaf leaf) (rev location))
+          (tree_insert root (node a leaf leaf) path)
           bools
       end
     end
@@ -704,7 +696,7 @@ tree so it does not overwrite data or fall off the end.
 Fixpoint leaf_insertable (into: tree A)(path: list bool): Prop :=
   match into with
   | leaf => 
-    (* Only if the location and tree run out at the same time
+    (* Only if the path and tree run out at the same time
        should we be able to insert *)
       match path with
       | [] => True
@@ -830,12 +822,12 @@ Proof.
         apply H.
 Qed.
 
-Lemma tree_deser_ser_impl : forall a root : tree A, forall location : list bool, forall bools : list bool, forall n : nat,
-    leaf_insertable root (rev location) ->
-    tree_deserialize_inter_impl (tree_size a + n) root (tree_serialize_subtree_inter a location ++ bools) = 
-      tree_deserialize_inter_impl n (tree_insert root a (rev location)) bools.
+Lemma tree_deser_ser_impl : forall a root : tree A, forall path : list bool, forall bools : list bool, forall n : nat,
+    leaf_insertable root path ->
+    tree_deserialize_inter_impl (tree_size a + n) root (tree_serialize_subtree_inter a path ++ bools) = 
+      tree_deserialize_inter_impl n (tree_insert root a path) bools.
 Proof.
-induction a as [| a l IHL r IHR]; intros root location bools n InTree.
+induction a as [| a l IHL r IHR]; intros root path bools n InTree.
 - simpl.
   rewrite tree_insert_at_leaf.
   reflexivity.

@@ -273,10 +273,8 @@
 </code></pre>
 <p>TODO: clean this sentence up</p>
 <p>“Just as with lists, there are two ways of serializing trees: interleaved and up front…”</p>
-<p>For the interleaved shape tree serializer, the concept of a “path” is needed. A path is simply the list of directions taken from the root to reach some node. We’ll use true to represent left and false to represent right. Below is the path <code>[true, false]</code>.</p>
+<p>For the interleaved shape tree serializer, the concept of a “path” is needed. A path is simply the list of directions taken from the root to reach some node. We’ll use <code>true</code> to represent left and <code>false</code> to represent right. These directions are stored with the head at the top of the tree. Below is the path <code>[true, false]</code>.</p>
 <p><img src="path.png" /></p>
-<p>TODO: just say “paths are stored in top down order” and then take out the reverses from the definition below.</p>
-<p>The only important thing to know about paths is that when recursing into a tree the direction traveled must be recorded at the end of the list rather than at the start. If right was first in the list, then it should remain first throughout. In our definitions, this concept is represented as reversing the breadcrumbs which were appended to the head of the list, after the recursion has finished.</p>
 <p>Using the concept of a path, the position and data of any node can be serialized. When this is done for all nodes in the tree, all information captured by the original data structure has been encoded.<a href="#fn2" class="footnote-ref" id="fnref2"><sup>2</sup></a></p>
 <p>Even though an interleaved structure is impossible to deserialize without general recursion, using an interleaved structure is still possible if there is just enough information up front to recurse on. The number of nodes in the tree provides a nice metric.</p>
 <p>TODO: clarify that neither tree deserializer is “truly interleaved”, since even this one has a header with the tree size.</p>
@@ -300,16 +298,18 @@
           <span style='color:#228b22'>end</span>
       <span style='color:#228b22'>end</span>.
     
-    <span style='color:#a020f0'>Fixpoint</span> <span style='color:#3b10ff'>tree_serialize_subtree_inter</span> (t: tree A) (location: list bool) :=
+    <span style='color:#a020f0'>Fixpoint</span> <span style='color:#3b10ff'>tree_serialize_subtree_inter</span> 
+        (t: tree A) (path: list bool) :=
       <span style='color:#228b22'>match</span> t <span style='color:#228b22'>with</span>
         | leaf =&gt; []
-        | node a l r =&gt; serialize location ++ serialize a
-          ++ tree_serialize_subtree_inter l (true :: location)
-          ++ tree_serialize_subtree_inter r (false :: location)
+        | node a l r =&gt; serialize path ++ serialize a
+          ++ tree_serialize_subtree_inter l (path ++ [true])
+          ++ tree_serialize_subtree_inter r (path ++ [false])
       <span style='color:#228b22'>end</span>.
     
     <span style='color:#a020f0'>Definition</span> <span style='color:#3b10ff'>tree_serialize_inter</span> (t: tree A) : list bool :=
-      nat_serialize (tree_size t) ++ tree_serialize_subtree_inter t [].
+      nat_serialize (tree_size t) ++ 
+      tree_serialize_subtree_inter t [].
 </code></pre>
 <p>Deserialization is more complicated. As elements are parsed, they are inserted into the tree structure parsed already. The insertion function used is not particularly robust, however during deserialization as long as any given node is preceded by all of its parents no issues arise. This is the case with a preorder traversal, and also with other traversals including BFS, so it meets our needs.</p>
 <pre><code>    <span style='color:#a020f0'>Fixpoint</span> <span style='color:#3b10ff'>tree_deserialize_inter_impl</span>
@@ -319,13 +319,13 @@
       | S n =&gt;
         <span style='color:#228b22'>match</span> deserialize bools <span style='color:#228b22'>with</span>
         | None =&gt; None
-        | Some (location, bools) =&gt;
+        | Some (path, bools) =&gt;
           <span style='color:#228b22'>match</span> deserialize bools <span style='color:#228b22'>with</span>
           | None =&gt; None
           | Some (a, bools) =&gt;
             tree_deserialize_inter_impl
               n
-              (tree_insert root (node a leaf leaf) (rev location))
+              (tree_insert root (node a leaf leaf) path)
               bools
           <span style='color:#228b22'>end</span>
         <span style='color:#228b22'>end</span>
