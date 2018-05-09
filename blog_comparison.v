@@ -401,7 +401,7 @@ impossible to tell where one list stops and the next begins just by looking at t
 This serializer is broken for the same reason as the broken `nat` serializer, the information in a serialized
 object must be entirely contained within the bitstream. Note that we don't run into this problem with any
 collection of fixed size, like a pair or vector. It is clear when to stop deserializing a `Vec 5` because 5
-elements have been deserialized. The information about the shape of the data in this case is encoded in the
+elements have been deserialized. In this case, the information about the shape of the data in this case is encoded in the
 type, and since the type is known to the serializer and the deserializer, it does not need to be encoded
 in the bitstream.
 
@@ -463,6 +463,8 @@ encoding in the form of a size. Then the rest of the deserializer can recurse on
  number of elements remaining.
 
 ![](list_front.png)
+
+Programmatically,
 
 *)
 
@@ -528,8 +530,12 @@ End ListSerializer.
 
 (**
 
-TODO: briefly summarize above discussion, sayng that interleaved would work fine in most
-languages, but not with just structural recursion.
+This gives a definition which we can define with only structural recursion just
+by moving the information around. It's worth noting that because the size information
+is grouped together instead of spread apart, it would be much easier to make the encoding
+format more efficient by swapping in a more efficient `nat` serializer. The only property
+lost with this encoding is that it is now impossible to reason about any tail of the
+list in isolation, the concept of a size must also be considererd.
 
 *)
 
@@ -582,9 +588,7 @@ Arguments node {_} _ _ _.
 
 (**
 
-TODO: clean this sentence up
-
-"Just as with lists, there are two ways of serializing trees: interleaved and up front..."
+Just as with lists, there are two ways of serializing trees: interleaved and up front.
 
 For the interleaved shape tree serializer, the concept of a "path" is needed. A path is simply the list of
 directions taken from the root to reach some node. We'll use `true` to represent left and `false`
@@ -598,10 +602,8 @@ all nodes in the tree, all information captured by the original data structure h
 
 Even though an interleaved structure is impossible to deserialize without general recursion, using an
 interleaved structure is still possible if there is just enough information up front to recurse on. The
-number of nodes in the tree provides a nice metric.
-
-TODO: clarify that neither tree deserializer is "truly interleaved", since even this one has a header
-with the tree size.
+number of nodes in the tree provides a nice metric. Our serializer will not truly be interleaved since
+we require this header, but information about the shape will still be interleaved in the encoding.
 
 The encoding using an interleaved structure looks like this:
 
@@ -620,17 +622,6 @@ Fixpoint tree_size (t : tree A) : nat :=
   match t with
   | leaf => 0
   | node _ l r => 1 + tree_size l + tree_size r
-  end.
-
-Fixpoint tree_insert (into t: tree A)(path: list bool): tree A :=
-  match into with
-  | leaf => t
-  | node a l r =>
-      match path with
-      | [] => t (* not supported *)
-      | true :: path => node a (tree_insert l t path) r
-      | false :: path => node a l (tree_insert r t path)
-      end
   end.
 
 Fixpoint tree_serialize_subtree_inter 
@@ -657,6 +648,17 @@ traversals including BFS, so it meets our needs.
 *)
 
 (*begin code*)
+Fixpoint tree_insert (into t: tree A)(path: list bool): tree A :=
+  match into with
+  | leaf => t
+  | node a l r =>
+      match path with
+      | [] => t (* not supported *)
+      | true :: path => node a (tree_insert l t path) r
+      | false :: path => node a l (tree_insert r t path)
+      end
+  end.
+
 Fixpoint tree_deserialize_inter_impl
          (remaining : nat) (root : tree A) (bools : list bool)
          : option (tree A * list bool) :=
@@ -887,23 +889,24 @@ but we still must reason about insertions.
 
 (**
 
-### Shape-based tree serializer
+### Up-front Tree Serializer
 
 Alternatively, the structure may be recorded at the beginning and then filled in as the tree is parsed.
-We must now reason about a tree as both it's shape (`tree unit`) and it's elements
-(`list A`).
+We can now reason about a tree as both it's shape as the type `tree unit`, and it's elements as the
+type `list A`.
+
 This technique requires serialization and deserialization to be a two step process, which has the advantage
 of better mapping to the information stored in the tree (shape and element data) but also the disadvantage
 of being more complicated. 
 
-The shape is encoded with three symbols:
+The shape is encoded similarly to HTML with three symbols:
 
 - `[true; true]`: The beginning of a `node`
-- `[true; false]`: The end of a node
+- `[true; false]`: The end of a `node`
 - `[false]`: A leaf node
 
-Each `node` requieres exactly two subtrees between its start and end marker. The shape is stored as a `tree 
-unit`. This works because `unit` contains no information, so `tree unit` only contains the information that
+Each `node` requieres exactly two subtrees between its start and end marker. Storing the shape as `tree unit`
+ works because `unit` contains no information, so `tree unit` only contains the information that
 the `tree` portion of `tree A` describes, which is the shape. Since we record this shape in a preorder
 traversal, the elements are also encoded in the same order, which makes it easy to marry the two together.
 
