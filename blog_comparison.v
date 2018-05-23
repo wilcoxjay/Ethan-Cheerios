@@ -8,8 +8,8 @@
 (**
 
 Serialization converts in-memory data to an external representation, typically a
-list or stream of bytes, which is then ready to be stored on disk or sent over
-the network.
+sequence of bytes, which is then ready to be stored on disk or sent over the
+network.
 
 This post describes Cheerios, a verified library for serialization in Coq.
 Cheerios uses typeclasses to make it easy to create new serializers by composing
@@ -19,10 +19,10 @@ simple serializers for booleans, natural numbers, and pairs.  Then, we describe
 two generic strategies for serializing recursive "container-like" types, such as
 lists and trees, and discuss the tradeoffs in proof effort between the
 strategies. A recurring theme is the challenge of expressing decoders via
-*structural recursion*.
+*structural recursion*, so that they are accepted by Coq's termination checker.
 
-Additionally, this post is generated from a literate Coq [file](), which we
-encourage you to step through.
+This post is generated from a literate Coq [file](), which we encourage you to
+step through to see the full details.
 
 ## Defining Serialization
 
@@ -31,17 +31,17 @@ encourage you to step through.
 Require Import List Arith.
 Import ListNotations.
 
-(*
+(**
 
-To begin our definition, we must first settle on what types to use for serialization and
-deserialization, as well as a correctness specification. We want our correctness spec to
-roughly show that serialization and deserialization are inverses so we know that any
-serialized object can be deserialized to the same object. We'll start with
-serialization because it conceptually comes first in the process.
+We start by deriving Cheerios' representation of serializers, deserializers, and
+their specifications from first principles.  Rougly speaking, our desired
+specification is that deserialization is an inverse of serialization, so that if
+you start with a value `v` and serialize it, then deserializing the resulting
+representation gives `v` again.
 
-In order to serialize something, we need to turn all of the information it carries into bits.
-It makes sense then to define a serializer for some type `A` as `A -> list bool`.
-Take the following type for example, representing olympic medals:
+Cheerios represents serialized data as a list of booleans, so that a serializer
+for values of type `A` is a function of type `A -> list bool`. To illustrate serialization
+consider the following simple example.
 
 *)
 
@@ -51,8 +51,9 @@ Inductive medal := Gold | Silver | Bronze.
 
 (**
 
-We need to map each case to a symbol of bits and return that. There are many ways this could be
-done, each with different trade offs as we will explore later, but we just need to pick one.
+A serializer for this type is a function of type `metal -> list bool`.  There
+are several ways of implementing such a function, with some tradeoffs we will
+explore later, but for now we just pick a simple strategy.
 
 *)
 
@@ -67,38 +68,71 @@ Definition medal_serialize (m: medal) : list bool :=
 
 (**
 
-Perfect, as it turns out, this type will be exactly what we need.
+How do we know whether we've implemented a good serializer or not? Intuitively,
+it would be bad if, for example, two different values mapped to the same
+sequence of bits, because then the deserializer will not be able to distinguish
+them.  So we might summarize by saying that a serializer is good if there is
+some deserializer that can correctly decode all serialized values.
 
-Now we need to determine a type for the deserializer. We want something that acts as an
-inverse to the serialization function we picked. At first thought, `list bool -> A` seems
-like a good option. This would allow our spec to be `deserialize (serialize a) = a`.
-However as we will see this runs into problems pretty quickly.
+To formalize this idea, we first need to settle on a type for deserializers.
+Since our goal is in some sense to invert the serializer, the natural first
+thought would be to have a deserializer of type `list bool -> A`. Then our
+specification would say that the deserializer really is the inverse of the
+serializer, i.e.,
 
 *)
 
+(*
+(*begin code*)
+    forall a, deserialize (serialize a) = a.
+(*end code*)
+*)
+
+(**
+
+However, this quickly runs into problems when we try to continue our example.
+
+*)
+
+(*begin code*)
 Fail Definition medal_deserialize (bools: list bool) : medal :=
   match bools with
   | [true; true] => Gold
   | [true; false] => Silver
   | [false] => Bronze
   end.
+(*end code*)
 
 (**
 
-Coq catches the mistake and points out that the bools are not exaustively matched on. What if
-they're empty? Fundamentally, we run into this problem because not every sequence of booleans
-decodes into a `medal`. Even non-empty sequences such as `[false; true]` pose issues. Since
-these sequences are not produced by the serializer, we can consider them to be erronious.
-In cheerios we handle this case by returning the `option` constructor `None` to indicate an
-error.
+Coq reports that the pattern maching above is not exhaustive, since, for
+example, we don't say what should happen if we deserialize the empty list. In
+other words, the type `list bool -> medal` is asking us to produce a `medal` for
+*every* list of booleans, even those that are not a valid output of the
+serializer. In those cases, we might like the deserializer to return an error,
+which we can encode using an `option` type.
 
-This makes the spec become `deserialize (serialize a) = Some a`, ie deserialization
-on any serialized stream always succeedes and returns the correct value.
+That gives us our second (but still not quite right) guess at a type for
+deserializers, namely `list bool -> option A`. Our notion of "inverse" also
+needs to be generalized to this setting.  We do so by requring that the
+deserializer succeed on all serialized values; in other words,
+
+*)
+
+(*
+(*begin code*)
+    forall a, deserialize (serialize a) = Some a.
+(*end code*)
+*)
+
+(**
+
+We can now implement the deserializer for `medal` in a way that Coq accepts.
 
 *)
 
 (*begin code*)
-Definition medal_deserialize1 (bools: list bool):option medal :=
+Definition medal_deserialize_second_attempt bools : option medal :=
   match bools with
   | [true; true] => Some Gold
   | [true; false] => Some Silver
@@ -109,9 +143,29 @@ Definition medal_deserialize1 (bools: list bool):option medal :=
 
 (**
 
-This works for a single medal being encoded in the bitstream, but we again run into problems
-when we try and implement a more complicated type like a pair of medals reusing the work
-from above. Serialization works just fine, but deserialization is problematic.
+We can even prove that the serializer and deserializer for `medal` satisfy
+the specification.
+
+*)
+
+(*begin code*)
+Lemma medal_serialize_deserialize_inverse :
+  forall m,
+    medal_deserialize_second_attempt (medal_serialize m) = Some m.
+Proof.
+  destruct m; reflexivity.
+Qed.
+(*end code*)
+
+(**
+
+So far so good.
+
+Now suppose we want to serialize two values of type `medal` back to back. No
+problem, just serialize them individually and concatenate the results together
+into one big list.  How should we deserialize such a thing? It would be nice to
+reuse the deserializer for a single medal, just like we were able to reuse the
+serializer, but it's not clear how.
 
 *)
 
@@ -119,27 +173,33 @@ from above. Serialization works just fine, but deserialization is problematic.
 Definition medal_serialize_pair (medals: medal * medal) :=
   medal_serialize (fst medals) ++ medal_serialize (snd medals).
 
-Fail Definition medal_deserialize_pair (bools: list bool)
-    : option (medal * medal) :=
-(medal_deserialize1 bools, medal_deserialize1 hmmm).
+Fail
+Definition medal_deserialize_pair bools : option (medal * medal) :=
+  (medal_deserialize1 bools, medal_deserialize1 (* hmmm *)).
 (*end code*)
 
 (**
 
-When deserializing the first medal, we consume the entire
-list. We don't know what to pass into the second call to `medal_deserialize1` because we don't know how much
-of the list has been deserialized. Our definition of deserialize needs a way to communicate how much of the
-stream was used back to the caller. In Cheerios, we represent this with the type `medal * list bool` where
-the deserialized medal and remaining portion of the stream are returned. This is wrapped in an option to 
-allow the entire
-deserialization operation to fail. Failure happens at this level because once an error is encountered, it is
-impossible in general to resume serialization of the remaining content.
+Our type for deserializers implicitly means that the deserializer "consumes" the
+entire list of booleans. So there's no clear candidate for what to pass into the
+second call.
+
+We fix this problem in our third (and final!) candidate for the type of a
+deserializer, which needs to communicate how much of the list was used back to
+the caller.  It does so be returning the unused suffix of the input list.  It's
+still possible that the whole operation can fail, so the type ends up being
+
+```
+    list bool -> option (A * list bool).
+```
+
+It's relatively straightforward to update our `medal` deserializer to return
+the unused portion of the input list.
 
 *)
 
 (*begin code*)
-Definition medal_deserialize (bools: list bool)
-	: option (medal * list bool) :=
+Definition medal_deserialize bools : option (medal * list bool) :=
   match bools with
   | true :: true :: bools => Some (Gold, bools)
   | true :: false :: bools => Some (Silver, bools)
@@ -150,8 +210,9 @@ Definition medal_deserialize (bools: list bool)
 
 (**
 
-As we will see shortly, this type is sufficient to support both composition and malformed inputs.
-Let's take a moment to generalize this before continuing so we can also find a definition for the spec.
+We still need to come up with a the notion of "inverse" that makes sense in the
+presence of unused portions of the list.  First, let's take a moment to
+write down our types for serializers and deserializers in general.
 
 *)
 
@@ -164,48 +225,66 @@ Definition deserializer (A: Type) :=
 
 (**
 
-How does this alter the correctness specification? We can start by taking what
-we had last time and making it typecheck:
+For the correctness property, perhaps the first type-correct thing that comes
+to mind is
 
-```
-deser (ser a) = Some (a, [])
-```
+*)
 
-However this still doesn't address the problem with the remaining bools. How do we reason
-about deserialization with any other input following? Another attempt leads us to something
-like this:
+(*
+(*begin code*)
+    forall a, deserialize (serialize a) = Some (a, []).
+(*end code*)
+*)
 
-```
-deser (ser a ++ ser b) = Some (a, ser b)
-```
+(**
 
-This works, but now exactly two objects must be encoded in the stream. We can't
-easily reason about deserializing multiple objects or a single object this way.
-Generalizing again for what comes after gives:
+This is a good property, but it is not enough to handle the problem of deserializing
+two medals back to back. We can attempt to handle this as follows:
 
-```
-deser (ser a ++ bools) = Some (a, bools)
-```
+*)
 
-Now the dependence on a second object is removed and as a side effect the spec
-becomes stronger, allowing any data to follow rather than just data produced
-by some serializer.
+(*
+(*begin code*)
+    forall a b,
+      deserialize (serialize a ++ serialize b) =
+      Some (a, serialize b).
+(*end code*)
+*)
 
-Note that our spec only needs to worry about encodings which our serializer produces.
-This eliminates our need to reason about the error cases that were nececary in the
-deserializer. However, in doing this, nothing is said about how malformed bitstrings are
-parsed, or that every deserialized value can be generated by exactly one bit string. These
-may be useful properties to prove, but cheerios does not handle deserialization
-from unknown and unverified sources since this minimum spec is enough.
+(**
+
+This handles two objects, but only in an ad hoc, specialized way. Considering
+that we want to handle the case of a single object, or arbitrarily many objects
+all with a single specification, we are led to generalize over the suffix:
+
+*)
+
+(*
+(*begin code*)
+    forall a bools,
+      deserialize (serialize a ++ bools) = Some (a, bools).
+(*end code*)
+*)
+
+(**
+
+Notice two points about this specification. First, it only restricts the
+behavior of the deserializer on lists that start with the output of the
+serializer. On any list not of this form, the deserializer is free to fail or
+return a garbage element of type `A`. Second, the deserializer is in some sense
+parametric in the suffix of the list after the serialized data: it is required
+to uniformly pass the suffix through. This is what makes it easy to compose
+arbitrary deserializers together to process complex data.
+
+We codify this specification with the following definition.
 
 *)
 
 (*begin code*)
 Definition ser_deser_spec A
-           (ser : serializer A)
-           (deser : deserializer A) :=
-  forall (a : A) (bools: list bool),
-      (deser (ser a ++ bools)) = Some (a, bools).
+           (s : serializer A) (d : deserializer A) :=
+  forall a bools,
+    d (s a ++ bools) = Some (a, bools).
 (*end code*)
 
 (**
